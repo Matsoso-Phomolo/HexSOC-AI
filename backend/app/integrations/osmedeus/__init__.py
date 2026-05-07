@@ -1,0 +1,1 @@
+"""Osmedeus integration package."""

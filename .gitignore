@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+build/
+.vite/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Data and model artifacts
+ml/datasets/*
+!ml/datasets/README.md
+ml/models/*
+!ml/models/README.md
+backend/app/ai/models/*
+!backend/app/ai/models/README.md
+data-pipeline/samples/*
+!data-pipeline/samples/README.md
+
+# Logs and runtime files
+*.log
+logs/
+tmp/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
