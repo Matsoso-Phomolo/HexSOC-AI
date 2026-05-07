@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.db import models
 from app.schemas.alert import AlertCreate, AlertRead, AlertStatusUpdate
+from app.services.activity_service import add_activity
 
 router = APIRouter()
 
@@ -13,6 +14,15 @@ def create_alert(payload: AlertCreate, db: Session = Depends(get_db)) -> models.
     """Store an analyst-facing alert."""
     alert = models.Alert(**payload.dict())
     db.add(alert)
+    db.flush()
+    add_activity(
+        db,
+        action="alert_created",
+        entity_type="alert",
+        entity_id=alert.id,
+        message=f"Alert created: {alert.title}",
+        severity=alert.severity,
+    )
     db.commit()
     db.refresh(alert)
     return alert
@@ -35,7 +45,16 @@ def update_alert_status(
     if alert is None:
         raise HTTPException(status_code=404, detail="Alert not found")
 
+    previous_status = alert.status
     alert.status = payload.status
+    add_activity(
+        db,
+        action="alert_status_changed",
+        entity_type="alert",
+        entity_id=alert.id,
+        message=f"Alert status changed from {previous_status} to {alert.status}",
+        severity=alert.severity,
+    )
     db.commit()
     db.refresh(alert)
     return alert

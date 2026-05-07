@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class EventCreate(BaseModel):
@@ -11,6 +11,10 @@ class EventCreate(BaseModel):
     event_type: str
     severity: str = "low"
     summary: str | None = None
+    source_ip: str | None = None
+    destination_ip: str | None = None
+    username: str | None = None
+    raw_message: str | None = None
     asset_id: int | None = None
     raw_payload: dict[str, Any] | None = None
 
@@ -22,6 +26,4 @@ class EventRead(EventCreate):
     created_at: datetime
     updated_at: datetime | None = None
 
-    class Config:
-        orm_mode = True
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

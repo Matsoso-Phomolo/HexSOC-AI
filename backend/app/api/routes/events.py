@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.db import models
 from app.schemas.event import EventCreate, EventRead
+from app.services.activity_service import add_activity
 
 router = APIRouter()
 
@@ -13,6 +14,15 @@ def create_event(payload: EventCreate, db: Session = Depends(get_db)) -> models.
     """Store a normalized security event."""
     event = models.SecurityEvent(**payload.dict())
     db.add(event)
+    db.flush()
+    add_activity(
+        db,
+        action="event_created",
+        entity_type="security_event",
+        entity_id=event.id,
+        message=f"Security event created: {event.event_type} from {event.source}",
+        severity=event.severity,
+    )
     db.commit()
     db.refresh(event)
     return event

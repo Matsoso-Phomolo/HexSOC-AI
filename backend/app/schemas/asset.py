@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class AssetCreate(BaseModel):
@@ -8,6 +8,9 @@ class AssetCreate(BaseModel):
 
     hostname: str
     ip_address: str | None = None
+    operating_system: str | None = None
+    role: str | None = None
+    status: str | None = None
     asset_type: str | None = None
     environment: str | None = None
     criticality: str | None = None
@@ -21,6 +24,4 @@ class AssetRead(AssetCreate):
     created_at: datetime
     updated_at: datetime | None = None
 
-    class Config:
-        orm_mode = True
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

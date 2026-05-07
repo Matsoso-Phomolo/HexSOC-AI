@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class AlertCreate(BaseModel):
@@ -8,7 +8,7 @@ class AlertCreate(BaseModel):
 
     title: str
     severity: str = "medium"
-    status: str = "open"
+    status: str = "new"
     source: str | None = None
     description: str | None = None
     event_id: int | None = None
@@ -27,6 +27,4 @@ class AlertRead(AlertCreate):
     created_at: datetime
     updated_at: datetime | None = None
 
-    class Config:
-        orm_mode = True
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

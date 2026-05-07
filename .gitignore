@@ -40,3 +40,5 @@ tmp/
 Thumbs.db
 .idea/
 .vscode/
+
+.vercel
