@@ -24,6 +24,12 @@ def serialize_alert(alert: Any) -> dict[str, Any]:
         "mitre_technique": alert.mitre_technique,
         "confidence_score": alert.confidence_score,
         "detection_rule": alert.detection_rule,
+        "threat_source": alert.threat_source,
+        "threat_score": alert.threat_score,
+        "geo_country": alert.geo_country,
+        "geo_city": alert.geo_city,
+        "isp": alert.isp,
+        "enrichment_status": alert.enrichment_status,
         "created_at": _iso_datetime(alert.created_at),
         "updated_at": _iso_datetime(alert.updated_at),
     }

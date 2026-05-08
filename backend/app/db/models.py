@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Column, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, JSON, Column, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase
 
 
@@ -29,6 +29,14 @@ class SecurityEvent(Base, TimestampMixin):
     raw_message = Column(Text, nullable=True)
     asset_id = Column(Integer, ForeignKey("assets.id"), nullable=True, index=True)
     raw_payload = Column(JSON, nullable=True)
+    risk_score = Column(Integer, nullable=True)
+    country = Column(String(120), nullable=True)
+    isp = Column(String(255), nullable=True)
+    asn = Column(String(120), nullable=True)
+    known_malicious = Column(Boolean, nullable=True)
+    abuse_confidence_score = Column(Integer, nullable=True)
+    total_reports = Column(Integer, nullable=True)
+    last_reported_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class Alert(Base, TimestampMixin):
@@ -47,6 +55,12 @@ class Alert(Base, TimestampMixin):
     mitre_technique = Column(String(120), nullable=True)
     confidence_score = Column(Integer, nullable=True)
     detection_rule = Column(String(120), nullable=True, index=True)
+    threat_source = Column(String(120), nullable=True)
+    threat_score = Column(Integer, nullable=True)
+    geo_country = Column(String(120), nullable=True)
+    geo_city = Column(String(120), nullable=True)
+    isp = Column(String(255), nullable=True)
+    enrichment_status = Column(String(40), nullable=True, default="pending")
 
 
 class Asset(Base, TimestampMixin):

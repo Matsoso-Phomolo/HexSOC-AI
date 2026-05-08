@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.db import models
 from app.services.activity_service import add_activity
+from app.services.threat_intel_service import enrich_alert_if_source_ip
 from app.services.websocket_manager import serialize_activity, serialize_alert
 
 
@@ -70,6 +71,7 @@ def run_detection_rules(db: Session, recent_limit: int = 250) -> dict[str, objec
         )
         db.add(alert)
         db.flush()
+        enrichment = enrich_alert_if_source_ip(db, alert)
         created_alerts.append(alert)
         alert_activity = add_activity(
             db,
@@ -80,6 +82,19 @@ def run_detection_rules(db: Session, recent_limit: int = 250) -> dict[str, objec
             severity=alert.severity,
         )
         created_activities.append(alert_activity)
+        if enrichment:
+            enrichment_activity = add_activity(
+                db,
+                action="threat_intel_enrichment",
+                entity_type="alert",
+                entity_id=alert.id,
+                message=(
+                    f"Detection alert enriched from {enrichment.threat_source}: "
+                    f"{enrichment.source_ip} scored {enrichment.risk_score}."
+                ),
+                severity=alert.severity,
+            )
+            created_activities.append(enrichment_activity)
         alerts_created += 1
 
     db.commit()

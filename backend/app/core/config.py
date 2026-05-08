@@ -20,6 +20,9 @@ class Settings(BaseModel):
     jwt_secret_key: str = "change-me"
     jwt_algorithm: str = "HS256"
     demo_seed_token: str | None = None
+    abuseipdb_api_key: str | None = None
+    virustotal_api_key: str | None = None
+    shodan_api_key: str | None = None
 
 
 def _split_csv(value: str) -> list[str]:
@@ -50,6 +53,9 @@ def load_settings() -> Settings:
         jwt_secret_key=os.getenv("JWT_SECRET_KEY", "change-me"),
         jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
         demo_seed_token=os.getenv("DEMO_SEED_TOKEN"),
+        abuseipdb_api_key=os.getenv("ABUSEIPDB_API_KEY"),
+        virustotal_api_key=os.getenv("VIRUSTOTAL_API_KEY"),
+        shodan_api_key=os.getenv("SHODAN_API_KEY"),
     )
 
 

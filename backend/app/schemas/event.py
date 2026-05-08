@@ -17,6 +17,14 @@ class EventCreate(BaseModel):
     raw_message: str | None = None
     asset_id: int | None = None
     raw_payload: dict[str, Any] | None = None
+    risk_score: int | None = None
+    country: str | None = None
+    isp: str | None = None
+    asn: str | None = None
+    known_malicious: bool | None = None
+    abuse_confidence_score: int | None = None
+    total_reports: int | None = None
+    last_reported_at: datetime | None = None
 
 
 class EventRead(EventCreate):

@@ -16,6 +16,12 @@ class AlertCreate(BaseModel):
     mitre_technique: str | None = None
     confidence_score: int | None = None
     detection_rule: str | None = None
+    threat_source: str | None = None
+    threat_score: int | None = None
+    geo_country: str | None = None
+    geo_city: str | None = None
+    isp: str | None = None
+    enrichment_status: str | None = None
 
 
 class AlertStatusUpdate(BaseModel):

@@ -103,6 +103,38 @@ function formatDateTime(value) {
   }).format(new Date(value));
 }
 
+function countryFlag(country) {
+  if (!country) return "N/A";
+
+  const countryCodes = {
+    Internal: "INT",
+    Reserved: "RSV",
+    Unknown: "UNK",
+    "United States": "US",
+    "United Kingdom": "GB",
+    Germany: "DE",
+    France: "FR",
+    Netherlands: "NL",
+    Canada: "CA",
+    Australia: "AU",
+    Japan: "JP",
+    Singapore: "SG",
+    "South Africa": "ZA",
+  };
+  const code = countryCodes[country] ?? country;
+
+  if (!/^[A-Z]{2}$/.test(code)) return code;
+
+  return String.fromCodePoint(...[...code].map((character) => 127397 + character.charCodeAt(0)));
+}
+
+function threatLevel(score, knownMalicious = false) {
+  if (knownMalicious || score >= 70) return "critical";
+  if (score >= 40) return "elevated";
+  if (score > 0) return "observed";
+  return "unknown";
+}
+
 function StatusBadge({ status, allowedStatuses }) {
   const normalizedStatus = status ?? "unknown";
   const badgeClass = allowedStatuses.includes(normalizedStatus)
@@ -120,6 +152,26 @@ function RealtimeBadge({ status }) {
   };
 
   return <span className={`live-badge live-${status}`}>{labels[status] ?? "Offline"}</span>;
+}
+
+function ThreatBadges({ item }) {
+  const score = item.threat_score ?? item.risk_score;
+  const country = item.geo_country ?? item.country;
+  const knownMalicious = item.known_malicious ?? score >= 70;
+
+  if (!score && !country && !item.enrichment_status) return null;
+
+  return (
+    <div className="threat-badge-row">
+      <span className={`threat-badge threat-${threatLevel(score ?? 0, knownMalicious)}`}>
+        Threat {score ?? "n/a"}
+      </span>
+      {knownMalicious && <span className="threat-badge threat-critical">Malicious IP</span>}
+      {country && <span className="threat-badge">{countryFlag(country)} {country}</span>}
+      {item.isp && <span className="threat-badge">{item.isp}</span>}
+      {item.enrichment_status && <span className="threat-badge">{item.enrichment_status}</span>}
+    </div>
+  );
 }
 
 function Field({ label, name, value, onChange, required = false, type = "text" }) {
@@ -184,6 +236,7 @@ function DataSection({ section, items }) {
               <div>
                 <strong>{getPrimaryText(section.key, item) ?? "Untitled"}</strong>
                 <p>{getSecondaryText(section.key, item) || "No additional context"}</p>
+                <ThreatBadges item={item} />
               </div>
               <span className="severity">{item.severity ?? "info"}</span>
             </li>
@@ -364,6 +417,29 @@ function DetectionPanel({ detectionState, detectionResult, detectionError, onRun
   );
 }
 
+function ThreatIntelPanel({ threatState, threatResult, threatError, onRun }) {
+  return (
+    <section className="threat-panel">
+      <div>
+        <h2>Threat Intelligence</h2>
+        <p>Enrich source IPs with AbuseIPDB, VirusTotal, GeoIP, and Shodan-ready provider context.</p>
+      </div>
+      <button type="button" disabled={threatState === "running"} onClick={onRun}>
+        {threatState === "running" ? "Enriching..." : "Run Threat Enrichment"}
+      </button>
+      {threatResult && (
+        <div className="detection-result">
+          <span>Source IPs: {threatResult.source_ips_checked}</span>
+          <span>Events enriched: {threatResult.events_enriched}</span>
+          <span>Alerts enriched: {threatResult.alerts_enriched}</span>
+          <span>Providers: {threatResult.providers?.join(", ")}</span>
+        </div>
+      )}
+      {threatError && <span className="form-error">{threatError}</span>}
+    </section>
+  );
+}
+
 function AlertSection({ alerts, onStatusChange, updatingKey }) {
   return (
     <section className="data-section workflow-section">
@@ -384,6 +460,7 @@ function AlertSection({ alerts, onStatusChange, updatingKey }) {
                   <StatusBadge status={alert.status} allowedStatuses={alertStatuses} />
                 </div>
                 <p>{[alert.source, alert.description].filter(Boolean).join(" | ") || "No alert context"}</p>
+                <ThreatBadges item={alert} />
                 <div className="action-row">
                   {alertActions.map((action) => (
                     <button
@@ -501,6 +578,9 @@ export default function Dashboard() {
   const [detectionState, setDetectionState] = useState("idle");
   const [detectionResult, setDetectionResult] = useState(null);
   const [detectionError, setDetectionError] = useState("");
+  const [threatState, setThreatState] = useState("idle");
+  const [threatResult, setThreatResult] = useState(null);
+  const [threatError, setThreatError] = useState("");
   const [liveNotice, setLiveNotice] = useState("");
 
   const realtimeStatus = useRealtimeAlerts({ onMessage: handleRealtimeMessage });
@@ -698,6 +778,20 @@ export default function Dashboard() {
     }
   }
 
+  async function handleRunThreatIntel() {
+    try {
+      setThreatState("running");
+      setThreatError("");
+      const result = await apiPost("/api/threat-intel/enrich", {});
+      setThreatResult(result);
+      await refreshSlices(["events", "alerts", "activity"]);
+    } catch (requestError) {
+      setThreatError(requestError.message);
+    } finally {
+      setThreatState("idle");
+    }
+  }
+
   return (
     <main className="app-shell">
       <section className="page-header">
@@ -742,6 +836,15 @@ export default function Dashboard() {
           detectionResult={detectionResult}
           detectionError={detectionError}
           onRun={handleRunDetectionEngine}
+        />
+      )}
+
+      {status === "ready" && (
+        <ThreatIntelPanel
+          threatState={threatState}
+          threatResult={threatResult}
+          threatError={threatError}
+          onRun={handleRunThreatIntel}
         />
       )}
 
