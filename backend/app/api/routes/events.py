@@ -5,17 +5,18 @@ from app.api.deps import get_db
 from app.db import models
 from app.schemas.event import EventCreate, EventRead
 from app.services.activity_service import add_activity
+from app.services.websocket_manager import serialize_activity, websocket_manager
 
 router = APIRouter()
 
 
 @router.post("/", response_model=EventRead, status_code=201, summary="Create security event")
-def create_event(payload: EventCreate, db: Session = Depends(get_db)) -> models.SecurityEvent:
+async def create_event(payload: EventCreate, db: Session = Depends(get_db)) -> models.SecurityEvent:
     """Store a normalized security event."""
     event = models.SecurityEvent(**payload.dict())
     db.add(event)
     db.flush()
-    add_activity(
+    activity = add_activity(
         db,
         action="event_created",
         entity_type="security_event",
@@ -25,6 +26,10 @@ def create_event(payload: EventCreate, db: Session = Depends(get_db)) -> models.
     )
     db.commit()
     db.refresh(event)
+    db.refresh(activity)
+    await websocket_manager.broadcast_activity(
+        {"type": "activity_created", "activity": serialize_activity(activity)}
+    )
     return event
 
 

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import activity, alerts, assets, demo, detections, events, health, incidents, websocket
+from app.api.routes import activity, alerts, assets, demo, detections, events, health, incidents, realtime, websocket
 from app.core.config import settings
 from app.core.logging import configure_logging
 from app.db.database import init_db
@@ -46,3 +46,4 @@ app.include_router(alerts.router, prefix=f"{settings.api_prefix}/alerts", tags=[
 app.include_router(incidents.router, prefix=f"{settings.api_prefix}/incidents", tags=["incidents"])
 app.include_router(detections.router, prefix=f"{settings.api_prefix}/detections", tags=["detections"])
 app.include_router(websocket.router, prefix=f"{settings.api_prefix}/ws", tags=["websocket"])
+app.include_router(realtime.router, tags=["realtime"])

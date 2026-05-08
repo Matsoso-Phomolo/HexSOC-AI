@@ -5,17 +5,18 @@ from app.api.deps import get_db
 from app.db import models
 from app.schemas.asset import AssetCreate, AssetRead
 from app.services.activity_service import add_activity
+from app.services.websocket_manager import serialize_activity, websocket_manager
 
 router = APIRouter()
 
 
 @router.post("/", response_model=AssetRead, status_code=201, summary="Create asset")
-def create_asset(payload: AssetCreate, db: Session = Depends(get_db)) -> models.Asset:
+async def create_asset(payload: AssetCreate, db: Session = Depends(get_db)) -> models.Asset:
     """Store an enterprise asset inventory record."""
     asset = models.Asset(**payload.dict())
     db.add(asset)
     db.flush()
-    add_activity(
+    activity = add_activity(
         db,
         action="asset_created",
         entity_type="asset",
@@ -25,6 +26,10 @@ def create_asset(payload: AssetCreate, db: Session = Depends(get_db)) -> models.
     )
     db.commit()
     db.refresh(asset)
+    db.refresh(activity)
+    await websocket_manager.broadcast_activity(
+        {"type": "activity_created", "activity": serialize_activity(activity)}
+    )
     return asset
 
 

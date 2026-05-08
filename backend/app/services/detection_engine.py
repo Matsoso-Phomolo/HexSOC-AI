@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.db import models
 from app.services.activity_service import add_activity
+from app.services.websocket_manager import serialize_activity, serialize_alert
 
 
 @dataclass(frozen=True)
@@ -28,7 +29,7 @@ RULES = [
 ]
 
 
-def run_detection_rules(db: Session, recent_limit: int = 250) -> dict[str, int]:
+def run_detection_rules(db: Session, recent_limit: int = 250) -> dict[str, object]:
     """Run deterministic SOC detection rules against recent security events."""
     events = (
         db.query(models.SecurityEvent)
@@ -38,8 +39,10 @@ def run_detection_rules(db: Session, recent_limit: int = 250) -> dict[str, int]:
     )
     matches = _find_matches(list(reversed(events)))
     alerts_created = 0
+    created_alerts: list[models.Alert] = []
+    created_activities: list[models.ActivityLog] = []
 
-    add_activity(
+    detection_activity = add_activity(
         db,
         action="detection_run",
         entity_type="detection_engine",
@@ -47,6 +50,7 @@ def run_detection_rules(db: Session, recent_limit: int = 250) -> dict[str, int]:
         message=f"Detection engine scanned {len(events)} recent events across {len(RULES)} rules.",
         severity="info",
     )
+    created_activities.append(detection_activity)
 
     for match in matches:
         if _alert_exists(db, match.rule, match.source_key):
@@ -66,7 +70,8 @@ def run_detection_rules(db: Session, recent_limit: int = 250) -> dict[str, int]:
         )
         db.add(alert)
         db.flush()
-        add_activity(
+        created_alerts.append(alert)
+        alert_activity = add_activity(
             db,
             action="alert_created",
             entity_type="alert",
@@ -74,14 +79,21 @@ def run_detection_rules(db: Session, recent_limit: int = 250) -> dict[str, int]:
             message=f"Detection alert created by {match.rule}: {alert.title}",
             severity=alert.severity,
         )
+        created_activities.append(alert_activity)
         alerts_created += 1
 
     db.commit()
+    for alert in created_alerts:
+        db.refresh(alert)
+    for activity in created_activities:
+        db.refresh(activity)
 
     return {
         "rules_checked": len(RULES),
         "alerts_created": alerts_created,
         "matches_found": len(matches),
+        "_created_alerts": [serialize_alert(alert) for alert in created_alerts],
+        "_created_activities": [serialize_activity(activity) for activity in created_activities],
     }
 
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost, fetchDashboardData } from "../api/client.js";
+import { useRealtimeAlerts } from "../hooks/useRealtimeAlerts.js";
 
 const sections = [
   { key: "assets", title: "Assets", empty: "No assets found." },
@@ -109,6 +110,16 @@ function StatusBadge({ status, allowedStatuses }) {
     : "status-unknown";
 
   return <span className={`status-badge ${badgeClass}`}>{normalizedStatus}</span>;
+}
+
+function RealtimeBadge({ status }) {
+  const labels = {
+    connected: "Live connected",
+    reconnecting: "Reconnecting",
+    offline: "Offline",
+  };
+
+  return <span className={`live-badge live-${status}`}>{labels[status] ?? "Offline"}</span>;
 }
 
 function Field({ label, name, value, onChange, required = false, type = "text" }) {
@@ -490,6 +501,9 @@ export default function Dashboard() {
   const [detectionState, setDetectionState] = useState("idle");
   const [detectionResult, setDetectionResult] = useState(null);
   const [detectionError, setDetectionError] = useState("");
+  const [liveNotice, setLiveNotice] = useState("");
+
+  const realtimeStatus = useRealtimeAlerts({ onMessage: handleRealtimeMessage });
 
   useEffect(() => {
     let isMounted = true;
@@ -545,6 +559,13 @@ export default function Dashboard() {
         currentData,
       ),
     );
+  }
+
+  async function handleRealtimeMessage(message) {
+    if (message.type === "connected") return;
+
+    setLiveNotice("Live update received");
+    await refreshSlices(["alerts", "incidents", "activity"]);
   }
 
   function buildPayload() {
@@ -682,7 +703,11 @@ export default function Dashboard() {
       <section className="page-header">
         <p>HexSOC AI</p>
         <h1>SOC Command Dashboard</h1>
-        <span>Live backend: {import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:9000"}</span>
+        <div className="status-line">
+          <span>Live backend: {import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:9000"}</span>
+          <RealtimeBadge status={realtimeStatus} />
+        </div>
+        {liveNotice && <div className="live-toast">{liveNotice}</div>}
       </section>
 
       {status === "loading" && <div className="state-panel">Loading live SOC data...</div>}

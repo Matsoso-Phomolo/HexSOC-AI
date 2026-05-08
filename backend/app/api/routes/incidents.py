@@ -5,17 +5,18 @@ from app.api.deps import get_db
 from app.db import models
 from app.schemas.incident import IncidentCreate, IncidentRead, IncidentStatusUpdate
 from app.services.activity_service import add_activity
+from app.services.websocket_manager import serialize_activity, websocket_manager
 
 router = APIRouter()
 
 
 @router.post("/", response_model=IncidentRead, status_code=201, summary="Create incident")
-def create_incident(payload: IncidentCreate, db: Session = Depends(get_db)) -> models.Incident:
+async def create_incident(payload: IncidentCreate, db: Session = Depends(get_db)) -> models.Incident:
     """Store an incident case for security response."""
     incident = models.Incident(**payload.dict())
     db.add(incident)
     db.flush()
-    add_activity(
+    activity = add_activity(
         db,
         action="incident_created",
         entity_type="incident",
@@ -25,6 +26,10 @@ def create_incident(payload: IncidentCreate, db: Session = Depends(get_db)) -> m
     )
     db.commit()
     db.refresh(incident)
+    db.refresh(activity)
+    await websocket_manager.broadcast_activity(
+        {"type": "activity_created", "activity": serialize_activity(activity)}
+    )
     return incident
 
 
@@ -35,7 +40,7 @@ def list_incidents(db: Session = Depends(get_db)) -> list[models.Incident]:
 
 
 @router.patch("/{incident_id}/status", response_model=IncidentRead, summary="Update incident status")
-def update_incident_status(
+async def update_incident_status(
     incident_id: int,
     payload: IncidentStatusUpdate,
     db: Session = Depends(get_db),
@@ -47,7 +52,7 @@ def update_incident_status(
 
     previous_status = incident.status
     incident.status = payload.status
-    add_activity(
+    activity = add_activity(
         db,
         action="incident_status_changed",
         entity_type="incident",
@@ -57,4 +62,15 @@ def update_incident_status(
     )
     db.commit()
     db.refresh(incident)
+    db.refresh(activity)
+    await websocket_manager.broadcast_alert(
+        {
+            "type": "incident_status_changed",
+            "incident_id": incident.id,
+            "status": incident.status,
+        }
+    )
+    await websocket_manager.broadcast_activity(
+        {"type": "activity_created", "activity": serialize_activity(activity)}
+    )
     return incident

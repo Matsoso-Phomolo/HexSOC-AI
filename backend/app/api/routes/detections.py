@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.services.detection_engine import RULES, run_detection_rules
+from app.services.websocket_manager import websocket_manager
 
 router = APIRouter()
 
@@ -14,6 +15,20 @@ def list_detections() -> dict[str, list]:
 
 
 @router.post("/run", summary="Run detection engine")
-def run_detections(db: Session = Depends(get_db)) -> dict[str, int]:
+async def run_detections(db: Session = Depends(get_db)) -> dict[str, int]:
     """Scan recent security events and create alerts for rule matches."""
-    return run_detection_rules(db)
+    result = run_detection_rules(db)
+    created_alerts = result.pop("_created_alerts", [])
+    created_activities = result.pop("_created_activities", [])
+
+    for alert in created_alerts:
+        await websocket_manager.broadcast_alert({"type": "alert_created", "alert": alert})
+
+    for activity in created_activities:
+        await websocket_manager.broadcast_activity({"type": "activity_created", "activity": activity})
+
+    return {
+        "rules_checked": int(result["rules_checked"]),
+        "alerts_created": int(result["alerts_created"]),
+        "matches_found": int(result["matches_found"]),
+    }

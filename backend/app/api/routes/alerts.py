@@ -5,17 +5,18 @@ from app.api.deps import get_db
 from app.db import models
 from app.schemas.alert import AlertCreate, AlertRead, AlertStatusUpdate
 from app.services.activity_service import add_activity
+from app.services.websocket_manager import serialize_activity, serialize_alert, websocket_manager
 
 router = APIRouter()
 
 
 @router.post("/", response_model=AlertRead, status_code=201, summary="Create alert")
-def create_alert(payload: AlertCreate, db: Session = Depends(get_db)) -> models.Alert:
+async def create_alert(payload: AlertCreate, db: Session = Depends(get_db)) -> models.Alert:
     """Store an analyst-facing alert."""
     alert = models.Alert(**payload.dict())
     db.add(alert)
     db.flush()
-    add_activity(
+    activity = add_activity(
         db,
         action="alert_created",
         entity_type="alert",
@@ -25,6 +26,11 @@ def create_alert(payload: AlertCreate, db: Session = Depends(get_db)) -> models.
     )
     db.commit()
     db.refresh(alert)
+    db.refresh(activity)
+    await websocket_manager.broadcast_alert({"type": "alert_created", "alert": serialize_alert(alert)})
+    await websocket_manager.broadcast_activity(
+        {"type": "activity_created", "activity": serialize_activity(activity)}
+    )
     return alert
 
 
@@ -35,7 +41,7 @@ def list_alerts(db: Session = Depends(get_db)) -> list[models.Alert]:
 
 
 @router.patch("/{alert_id}/status", response_model=AlertRead, summary="Update alert status")
-def update_alert_status(
+async def update_alert_status(
     alert_id: int,
     payload: AlertStatusUpdate,
     db: Session = Depends(get_db),
@@ -47,7 +53,7 @@ def update_alert_status(
 
     previous_status = alert.status
     alert.status = payload.status
-    add_activity(
+    activity = add_activity(
         db,
         action="alert_status_changed",
         entity_type="alert",
@@ -57,4 +63,16 @@ def update_alert_status(
     )
     db.commit()
     db.refresh(alert)
+    db.refresh(activity)
+    await websocket_manager.broadcast_alert(
+        {
+            "type": "alert_status_changed",
+            "alert_id": alert.id,
+            "status": alert.status,
+            "alert": serialize_alert(alert),
+        }
+    )
+    await websocket_manager.broadcast_activity(
+        {"type": "activity_created", "activity": serialize_activity(activity)}
+    )
     return alert

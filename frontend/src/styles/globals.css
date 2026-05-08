@@ -34,6 +34,57 @@ body {
   font-size: 14px;
 }
 
+.status-line {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.status-line span {
+  margin-top: 0;
+}
+
+.live-badge {
+  border: 1px solid #2e425f;
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 4px 10px;
+  text-transform: uppercase;
+}
+
+.live-connected {
+  background: #123b2a;
+  border-color: #166534;
+  color: #bbf7d0;
+}
+
+.live-reconnecting {
+  background: #4a2f0f;
+  border-color: #854d0e;
+  color: #fde68a;
+}
+
+.live-offline {
+  background: #3f1d24;
+  border-color: #7f1d1d;
+  color: #fecdd3;
+}
+
+.live-toast {
+  border: 1px solid #166534;
+  border-radius: 8px;
+  background: #102a21;
+  color: #bbf7d0;
+  display: inline-flex;
+  font-size: 13px;
+  margin-top: 14px;
+  padding: 8px 11px;
+}
+
 .state-panel {
   margin-top: 24px;
   border: 1px solid #203047;
