@@ -1,13 +1,15 @@
 """Admin-only user management routes."""
 
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.db import models
+from app.db.database import sync_phase2_schema
 from app.schemas.user import (
     LoginAuditRead,
     UserAdminRead,
@@ -21,15 +23,27 @@ from app.services.auth_service import normalize_role, require_role
 from app.services.websocket_manager import serialize_activity, websocket_manager
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/", response_model=list[UserAdminRead], summary="List users")
 def list_users(
     db: Session = Depends(get_db),
     _: models.User = Depends(require_role("admin")),
-) -> list[models.User]:
+) -> list[UserAdminRead]:
     """Return all SOC users for admin review."""
-    return db.query(models.User).order_by(models.User.id.asc()).all()
+    try:
+        users = _query_users(db)
+    except SQLAlchemyError:
+        logger.exception("Admin user list failed; attempting schema sync")
+        db.rollback()
+        _sync_users_schema_or_503()
+        try:
+            users = _query_users(db)
+        except SQLAlchemyError as exc:
+            logger.exception("Admin user list failed after schema sync")
+            raise HTTPException(status_code=503, detail="User management database is not ready.") from exc
+    return [_user_read(user) for user in users]
 
 
 @router.get("/{user_id}", response_model=UserDetailRead, summary="Get user")
@@ -39,8 +53,15 @@ def get_user(
     _: models.User = Depends(require_role("admin")),
 ) -> UserDetailRead:
     """Return one user with recent login audit activity."""
-    user = _get_user_or_404(db, user_id)
-    audits = _recent_audits(db, user)
+    try:
+        user = _get_user_or_404(db, user_id)
+        audits = _recent_audits(db, user)
+    except SQLAlchemyError:
+        logger.exception("Admin user detail failed; attempting schema sync")
+        db.rollback()
+        _sync_users_schema_or_503()
+        user = _get_user_or_404(db, user_id)
+        audits = _recent_audits(db, user)
     return _detail_response(user, audits)
 
 
@@ -50,7 +71,7 @@ async def update_user(
     payload: UserUpdate,
     db: Session = Depends(get_db),
     actor: models.User = Depends(require_role("admin")),
-) -> models.User:
+) -> UserAdminRead:
     """Update editable identity fields for a SOC user."""
     user = _get_user_or_404(db, user_id)
 
@@ -81,7 +102,7 @@ async def update_user(
     db.refresh(user)
     db.refresh(activity)
     await _broadcast_user_action("user_updated", user, activity)
-    return user
+    return _user_read(user)
 
 
 @router.post("/{user_id}/activate", response_model=UserAdminRead, summary="Activate user")
@@ -89,7 +110,7 @@ async def activate_user(
     user_id: int,
     db: Session = Depends(get_db),
     actor: models.User = Depends(require_role("admin")),
-) -> models.User:
+) -> UserAdminRead:
     """Reactivate a SOC user account."""
     user = _get_user_or_404(db, user_id)
     user.is_active = True
@@ -110,7 +131,7 @@ async def activate_user(
     db.refresh(user)
     db.refresh(activity)
     await _broadcast_user_action("user_activated", user, activity)
-    return user
+    return _user_read(user)
 
 
 @router.post("/{user_id}/deactivate", response_model=UserAdminRead, summary="Deactivate user")
@@ -119,7 +140,7 @@ async def deactivate_user(
     payload: UserDeactivateRequest | None = None,
     db: Session = Depends(get_db),
     actor: models.User = Depends(require_role("admin")),
-) -> models.User:
+) -> UserAdminRead:
     """Deactivate a SOC user account without allowing self-lockout."""
     user = _get_user_or_404(db, user_id)
     if user.id == actor.id:
@@ -143,7 +164,7 @@ async def deactivate_user(
     db.refresh(user)
     db.refresh(activity)
     await _broadcast_user_action("user_deactivated", user, activity)
-    return user
+    return _user_read(user)
 
 
 @router.post("/{user_id}/role", response_model=UserAdminRead, summary="Change user role")
@@ -152,7 +173,7 @@ async def change_user_role(
     payload: UserRoleUpdate,
     db: Session = Depends(get_db),
     actor: models.User = Depends(require_role("admin")),
-) -> models.User:
+) -> UserAdminRead:
     """Change a SOC user's role."""
     user = _get_user_or_404(db, user_id)
     next_role = normalize_role(payload.role)
@@ -174,7 +195,7 @@ async def change_user_role(
     db.refresh(user)
     db.refresh(activity)
     await _broadcast_user_action("user_role_changed", user, activity)
-    return user
+    return _user_read(user)
 
 
 def _get_user_or_404(db: Session, user_id: int) -> models.User:
@@ -182,6 +203,10 @@ def _get_user_or_404(db: Session, user_id: int) -> models.User:
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return user
+
+
+def _query_users(db: Session) -> list[models.User]:
+    return db.query(models.User).order_by(models.User.id.asc()).all()
 
 
 def _recent_audits(db: Session, user: models.User) -> list[models.LoginAudit]:
@@ -196,9 +221,32 @@ def _recent_audits(db: Session, user: models.User) -> list[models.LoginAudit]:
 
 def _detail_response(user: models.User, audits: list[models.LoginAudit]) -> UserDetailRead:
     return UserDetailRead(
-        **UserAdminRead.model_validate(user).model_dump(),
+        **_user_read(user).model_dump(),
         login_audits=[LoginAuditRead.model_validate(audit) for audit in audits],
     )
+
+
+def _user_read(user: models.User) -> UserAdminRead:
+    return UserAdminRead(
+        id=user.id,
+        full_name=user.full_name or user.username or user.email or f"User {user.id}",
+        email=user.email or f"user_{user.id}@hexsoc.local",
+        username=user.username or f"user_{user.id}",
+        role=normalize_role(user.role),
+        is_active=bool(user.is_active),
+        disabled_reason=user.disabled_reason,
+        last_login_at=user.last_login_at,
+        updated_at=user.updated_at,
+        created_at=user.created_at or datetime.now(timezone.utc),
+    )
+
+
+def _sync_users_schema_or_503() -> None:
+    try:
+        sync_phase2_schema()
+    except SQLAlchemyError as exc:
+        logger.exception("Admin users schema sync failed")
+        raise HTTPException(status_code=503, detail="User management schema could not be initialized.") from exc
 
 
 async def _broadcast_user_action(event_type: str, user: models.User, activity: models.ActivityLog) -> None:
