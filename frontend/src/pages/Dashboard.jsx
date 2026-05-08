@@ -310,6 +310,24 @@ function ThreatBadges({ item }) {
   );
 }
 
+function MitreBadges({ item }) {
+  const techniqueId = item.mitre_technique_id;
+  const technique = item.mitre_technique;
+  const tactic = item.mitre_tactic;
+  const confidence = item.mitre_confidence ?? item.confidence_score;
+
+  if (!techniqueId && !technique && !tactic) return null;
+
+  return (
+    <div className="mitre-badge-row">
+      {techniqueId && <span className="mitre-badge">{techniqueId}</span>}
+      {technique && <span className="mitre-badge">{technique}</span>}
+      {tactic && <span className="mitre-badge">{tactic}</span>}
+      {confidence && <span className="mitre-badge">Confidence {confidence}</span>}
+    </div>
+  );
+}
+
 function buildGraphPath(filters) {
   const params = new URLSearchParams();
   const sourceIp = filters.source_ip.trim();
@@ -448,6 +466,7 @@ function DataSection({ section, items }) {
                 <strong>{getPrimaryText(section.key, item) ?? "Untitled"}</strong>
                 <p>{getSecondaryText(section.key, item) || "No additional context"}</p>
                 <ThreatBadges item={item} />
+                <MitreBadges item={item} />
               </div>
               <span className="severity">{item.severity ?? "info"}</span>
             </li>
@@ -741,6 +760,51 @@ function ThreatIntelPanel({ threatState, threatResult, threatError, onRun, canOp
         </div>
       )}
       {threatError && <span className="form-error">{threatError}</span>}
+    </section>
+  );
+}
+
+function MitreCoveragePanel({ coverage, state, error, onRun, onRefresh, canOperate }) {
+  return (
+    <section className="mitre-panel">
+      <div className="section-heading">
+        <div>
+          <h2>MITRE ATT&CK Coverage</h2>
+          <p>Map normalized telemetry and detections to ATT&CK tactics and techniques.</p>
+        </div>
+        <div className="ingestion-header-actions">
+          <button type="button" disabled={state === "running"} onClick={onRefresh}>
+            Refresh Coverage
+          </button>
+          <button type="button" disabled={!canOperate || state === "running"} onClick={onRun}>
+            {state === "running" ? "Mapping..." : "Run MITRE Mapping"}
+          </button>
+        </div>
+      </div>
+
+      {error && <span className="form-error">{error}</span>}
+      {coverage && (
+        <>
+          <div className="report-summary-grid">
+            <div className="report-summary-card">
+              <span>Mapped events</span>
+              <strong>{coverage.mapped_events} / {coverage.total_events}</strong>
+            </div>
+            <div className="report-summary-card">
+              <span>Mapped alerts</span>
+              <strong>{coverage.mapped_alerts} / {coverage.total_alerts}</strong>
+            </div>
+            <div className="report-summary-card report-wide-card">
+              <span>Top techniques</span>
+              <strong>{coverage.top_techniques?.map((item) => `${item.name} (${item.count})`).join(", ") || "None yet"}</strong>
+            </div>
+            <div className="report-summary-card report-wide-card">
+              <span>Top tactics</span>
+              <strong>{coverage.top_tactics?.map((item) => `${item.name} (${item.count})`).join(", ") || "None yet"}</strong>
+            </div>
+          </div>
+        </>
+      )}
     </section>
   );
 }
@@ -1532,6 +1596,7 @@ function AlertSection({ alerts, onStatusChange, updatingKey, canOperate }) {
                 </div>
                 <p>{[alert.source, alert.description].filter(Boolean).join(" | ") || "No alert context"}</p>
                 <ThreatBadges item={alert} />
+                <MitreBadges item={alert} />
                 <div className="action-row">
                   {alertActions.map((action) => (
                     <button
@@ -1669,6 +1734,9 @@ export default function Dashboard() {
   const [threatState, setThreatState] = useState("idle");
   const [threatResult, setThreatResult] = useState(null);
   const [threatError, setThreatError] = useState("");
+  const [mitreCoverage, setMitreCoverage] = useState(null);
+  const [mitreState, setMitreState] = useState("idle");
+  const [mitreError, setMitreError] = useState("");
   const [correlationState, setCorrelationState] = useState("idle");
   const [correlationResult, setCorrelationResult] = useState(null);
   const [correlationError, setCorrelationError] = useState("");
@@ -1769,6 +1837,7 @@ export default function Dashboard() {
 
     loadDashboard();
     loadGraph();
+    loadMitreCoverage();
 
     return () => {
       isMounted = false;
@@ -1899,6 +1968,11 @@ export default function Dashboard() {
     ) {
       await refreshSlices(["events", "assets", "alerts", "activity"]);
       await loadGraph();
+      await loadMitreCoverage();
+    }
+
+    if (message.type === "mitre_mapping_completed") {
+      await Promise.all([refreshSlices(["events", "alerts", "activity"]), loadGraph(), loadMitreCoverage()]);
     }
 
     if (
@@ -1933,6 +2007,16 @@ export default function Dashboard() {
     } catch (requestError) {
       setGraphError(requestError.message);
       setGraphStatus("error");
+    }
+  }
+
+  async function loadMitreCoverage() {
+    try {
+      setMitreError("");
+      const coverage = await apiGet("/api/mitre/coverage");
+      setMitreCoverage(coverage);
+    } catch (requestError) {
+      setMitreError(requestError.message);
     }
   }
 
@@ -2111,6 +2195,20 @@ export default function Dashboard() {
       setThreatError(requestError.message);
     } finally {
       setThreatState("idle");
+    }
+  }
+
+  async function handleRunMitreMapping() {
+    try {
+      setMitreState("running");
+      setMitreError("");
+      await apiPost("/api/mitre/map-events", {});
+      await apiPost("/api/mitre/map-alerts", {});
+      await Promise.all([refreshSlices(["events", "alerts", "activity"]), loadGraph(), loadMitreCoverage()]);
+    } catch (requestError) {
+      setMitreError(requestError.message);
+    } finally {
+      setMitreState("idle");
     }
   }
 
@@ -2542,6 +2640,17 @@ export default function Dashboard() {
           threatResult={threatResult}
           threatError={threatError}
           onRun={handleRunThreatIntel}
+          canOperate={canOperate}
+        />
+      )}
+
+      {status === "ready" && (
+        <MitreCoveragePanel
+          coverage={mitreCoverage}
+          state={mitreState}
+          error={mitreError}
+          onRun={handleRunMitreMapping}
+          onRefresh={loadMitreCoverage}
           canOperate={canOperate}
         />
       )}

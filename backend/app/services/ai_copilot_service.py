@@ -48,9 +48,11 @@ def explain_mitre(alert: models.Alert) -> str:
     """Explain MITRE ATT&CK context attached to an alert."""
     rule = (alert.detection_rule or "").lower()
 
+    technique_id = getattr(alert, "mitre_technique_id", None)
     if alert.mitre_technique:
         return (
-            f"{alert.mitre_technique} is mapped to {alert.mitre_tactic or 'an ATT&CK tactic'}. "
+            f"{technique_id + ' ' if technique_id else ''}{alert.mitre_technique} is mapped to "
+            f"{alert.mitre_tactic or 'an ATT&CK tactic'}. "
             "Treat this as a hypothesis for analyst validation, not final attribution."
         )
     if "failed_login_spike" in rule:
@@ -147,6 +149,10 @@ def generate_investigation_notes(alert_or_incident: models.Alert | models.Incide
         if alert.threat_score is not None:
             notes.append(
                 f"Threat intel: {alert.threat_source or 'unknown provider'} scored this context {alert.threat_score}."
+            )
+        if alert.mitre_technique:
+            notes.append(
+                f"MITRE: {getattr(alert, 'mitre_technique_id', None) or 'ATT&CK'} {alert.mitre_technique} under {alert.mitre_tactic or 'unknown tactic'}."
             )
         if alert.geo_country or alert.isp:
             notes.append(f"Geo/ISP context: {alert.geo_country or 'unknown country'} / {alert.isp or 'unknown ISP'}.")

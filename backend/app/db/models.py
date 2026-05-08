@@ -37,6 +37,11 @@ class SecurityEvent(Base, TimestampMixin):
     abuse_confidence_score = Column(Integer, nullable=True)
     total_reports = Column(Integer, nullable=True)
     last_reported_at = Column(DateTime(timezone=True), nullable=True)
+    mitre_tactic = Column(String(120), nullable=True)
+    mitre_technique = Column(String(160), nullable=True)
+    mitre_technique_id = Column(String(40), nullable=True, index=True)
+    mitre_confidence = Column(Integer, nullable=True)
+    mitre_reason = Column(Text, nullable=True)
 
 
 class Alert(Base, TimestampMixin):
@@ -53,6 +58,7 @@ class Alert(Base, TimestampMixin):
     event_id = Column(Integer, ForeignKey("security_events.id"), nullable=True, index=True)
     mitre_tactic = Column(String(120), nullable=True)
     mitre_technique = Column(String(120), nullable=True)
+    mitre_technique_id = Column(String(40), nullable=True, index=True)
     confidence_score = Column(Integer, nullable=True)
     detection_rule = Column(String(120), nullable=True, index=True)
     threat_source = Column(String(120), nullable=True)

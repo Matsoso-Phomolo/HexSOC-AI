@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.db import models
 from app.services.activity_service import add_activity
+from app.services.mitre_mapping_service import apply_alert_mapping
 from app.services.threat_intel_service import enrich_alert_if_source_ip
 from app.services.websocket_manager import serialize_activity, serialize_alert
 
@@ -69,6 +70,7 @@ def run_detection_rules(db: Session, recent_limit: int = 250) -> dict[str, objec
             confidence_score=match.confidence_score,
             detection_rule=f"{match.rule}:{match.source_key}",
         )
+        apply_alert_mapping(alert)
         db.add(alert)
         db.flush()
         enrichment = enrich_alert_if_source_ip(db, alert)

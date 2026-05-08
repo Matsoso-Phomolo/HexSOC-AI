@@ -25,6 +25,11 @@ class EventCreate(BaseModel):
     abuse_confidence_score: int | None = None
     total_reports: int | None = None
     last_reported_at: datetime | None = None
+    mitre_tactic: str | None = None
+    mitre_technique: str | None = None
+    mitre_technique_id: str | None = None
+    mitre_confidence: int | None = None
+    mitre_reason: str | None = None
 
 
 class EventRead(EventCreate):

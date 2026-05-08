@@ -59,6 +59,11 @@ def build_investigation_graph(
                     "destination_ip": event.destination_ip,
                     "username": event.username,
                     "summary": event.summary,
+                    "mitre_tactic": event.mitre_tactic,
+                    "mitre_technique": event.mitre_technique,
+                    "mitre_technique_id": event.mitre_technique_id,
+                    "mitre_confidence": event.mitre_confidence,
+                    "mitre_reason": event.mitre_reason,
                 },
             )
             _add_edge(edges, ip_node_id, event_node_id, "generated_event")
@@ -97,6 +102,10 @@ def build_investigation_graph(
                 "source": alert.source,
                 "event_id": alert.event_id,
                 "detection_rule": alert.detection_rule,
+                "mitre_tactic": alert.mitre_tactic,
+                "mitre_technique": alert.mitre_technique,
+                "mitre_technique_id": alert.mitre_technique_id,
+                "mitre_confidence": alert.confidence_score,
                 "threat_source": alert.threat_source,
                 "threat_score": alert.threat_score,
                 "geo_country": alert.geo_country,

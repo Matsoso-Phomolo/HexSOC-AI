@@ -16,6 +16,7 @@ from app.api.routes import (
     health,
     ingestion,
     incidents,
+    mitre,
     realtime,
     threat_intel,
     users,
@@ -72,6 +73,7 @@ app.include_router(copilot.router, prefix=f"{settings.api_prefix}/copilot", tags
 app.include_router(correlation.router, prefix=f"{settings.api_prefix}/correlation", tags=["correlation"])
 app.include_router(threat_intel.router, prefix=f"{settings.api_prefix}/threat-intel", tags=["threat-intel"])
 app.include_router(graph.router, prefix=f"{settings.api_prefix}/graph", tags=["graph"])
+app.include_router(mitre.router, prefix=f"{settings.api_prefix}/mitre", tags=["mitre"])
 app.include_router(ingestion.router, prefix=f"{settings.api_prefix}/ingestion", tags=["ingestion"])
 app.include_router(windows_events.router, prefix=f"{settings.api_prefix}/ingestion", tags=["ingestion"])
 app.include_router(websocket.router, prefix=f"{settings.api_prefix}/ws", tags=["websocket"])

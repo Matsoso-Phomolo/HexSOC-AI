@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.db import models
 from app.schemas.ingestion import IngestLogItem, IngestedEventSummary
 from app.services.activity_service import add_activity
+from app.services.mitre_mapping_service import apply_event_mapping
 
 
 ALLOWED_SEVERITIES = {"low", "medium", "high", "critical", "info"}
@@ -50,6 +51,7 @@ def ingest_logs(
             asset_id=asset.id if asset else None,
             raw_payload=_build_raw_payload(log),
         )
+        apply_event_mapping(event)
         db.add(event)
         db.flush()
         summaries.append(
