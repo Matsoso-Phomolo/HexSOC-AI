@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { API_BASE_URL, apiGet, apiPatch, apiPost, fetchDashboardData } from "../api/client.js";
+import {
+  API_BASE_URL,
+  apiGet,
+  apiPatch,
+  apiPost,
+  clearStoredToken,
+  fetchDashboardData,
+  getStoredToken,
+  login,
+  register,
+  setStoredToken,
+} from "../api/client.js";
 import { useRealtimeAlerts } from "../hooks/useRealtimeAlerts.js";
 
 const sections = [
@@ -264,6 +275,45 @@ function TextAreaField({ label, name, value, onChange, required = false }) {
   );
 }
 
+function AuthScreen({ authMode, authForm, authError, authState, onModeChange, onFieldChange, onSubmit }) {
+  return (
+    <main className="auth-shell">
+      <section className="auth-card">
+        <p>HexSOC AI</p>
+        <h1>SOC Analyst Login</h1>
+        <form className="record-form" onSubmit={onSubmit}>
+          {authMode === "register" && (
+            <>
+              <Field label="Full name" name="full_name" value={authForm.full_name} required onChange={onFieldChange} />
+              <Field label="Email" name="email" value={authForm.email} required onChange={onFieldChange} />
+            </>
+          )}
+          <Field label="Username or email" name="username" value={authForm.username} required onChange={onFieldChange} />
+          {authMode === "register" && (
+            <SelectField
+              label="Role"
+              name="role"
+              value={authForm.role}
+              onChange={onFieldChange}
+              options={["analyst", "viewer", "admin"]}
+            />
+          )}
+          <Field label="Password" name="password" type="password" value={authForm.password} required onChange={onFieldChange} />
+          <div className="form-footer">
+            <button type="submit" disabled={authState === "loading"}>
+              {authState === "loading" ? "Please wait..." : authMode === "login" ? "Login" : "Register"}
+            </button>
+            <button type="button" onClick={() => onModeChange(authMode === "login" ? "register" : "login")}>
+              {authMode === "login" ? "Create account" : "Back to login"}
+            </button>
+            {authError && <span className="form-error">{authError}</span>}
+          </div>
+        </form>
+      </section>
+    </main>
+  );
+}
+
 function DataSection({ section, items }) {
   return (
     <section className="data-section">
@@ -301,6 +351,7 @@ function CreateRecordPanel({
   onTabChange,
   onFieldChange,
   onSubmit,
+  canOperate,
 }) {
   const form = forms[activeForm];
 
@@ -429,7 +480,7 @@ function CreateRecordPanel({
         )}
 
         <div className="form-footer">
-          <button type="submit" disabled={submitState === "submitting"}>
+          <button type="submit" disabled={!canOperate || submitState === "submitting"}>
             {submitState === "submitting" ? "Creating..." : `Create ${activeForm}`}
           </button>
           {submitMessage && <span className="success-message">{submitMessage}</span>}
@@ -440,14 +491,14 @@ function CreateRecordPanel({
   );
 }
 
-function DetectionPanel({ detectionState, detectionResult, detectionError, onRun }) {
+function DetectionPanel({ detectionState, detectionResult, detectionError, onRun, canOperate }) {
   return (
     <section className="detection-panel">
       <div>
         <h2>Detection Engine</h2>
         <p>Run deterministic SOC rules against recent security events before AI enrichment.</p>
       </div>
-      <button type="button" disabled={detectionState === "running"} onClick={onRun}>
+      <button type="button" disabled={!canOperate || detectionState === "running"} onClick={onRun}>
         {detectionState === "running" ? "Running..." : "Run Detection Engine"}
       </button>
       {detectionResult && (
@@ -462,14 +513,14 @@ function DetectionPanel({ detectionState, detectionResult, detectionError, onRun
   );
 }
 
-function ThreatIntelPanel({ threatState, threatResult, threatError, onRun }) {
+function ThreatIntelPanel({ threatState, threatResult, threatError, onRun, canOperate }) {
   return (
     <section className="threat-panel">
       <div>
         <h2>Threat Intelligence</h2>
         <p>Enrich source IPs with AbuseIPDB, VirusTotal, GeoIP, and Shodan-ready provider context.</p>
       </div>
-      <button type="button" disabled={threatState === "running"} onClick={onRun}>
+      <button type="button" disabled={!canOperate || threatState === "running"} onClick={onRun}>
         {threatState === "running" ? "Enriching..." : "Run Threat Enrichment"}
       </button>
       {threatResult && (
@@ -497,6 +548,7 @@ function GraphInvestigationPanel({
   onNodeSelect,
   onAnalyzeNode,
   onZoomChange,
+  canOperate,
 }) {
   const nodes = layoutGraph(graphData?.nodes ?? []);
   const nodeById = Object.fromEntries(nodes.map((node) => [node.id, node]));
@@ -628,7 +680,7 @@ function GraphInvestigationPanel({
                 </dl>
                 {["alert", "incident"].includes(selectedNode.type) && (
                   <div className="graph-detail-actions">
-                    <button type="button" onClick={() => onAnalyzeNode(selectedNode)}>
+                    <button type="button" disabled={!canOperate} onClick={() => onAnalyzeNode(selectedNode)}>
                       Analyze {selectedNode.type}
                     </button>
                   </div>
@@ -657,6 +709,7 @@ function CopilotPanel({
   onModeChange,
   onTargetChange,
   onAnalyze,
+  canOperate,
 }) {
   const chainOptions = chains ?? [];
 
@@ -722,7 +775,7 @@ function CopilotPanel({
           </label>
         )}
 
-        <button type="button" disabled={copilotState === "loading"} onClick={onAnalyze}>
+        <button type="button" disabled={!canOperate || copilotState === "loading"} onClick={onAnalyze}>
           {copilotState === "loading" ? "Analyzing..." : "Run AI Analysis"}
         </button>
       </div>
@@ -801,6 +854,7 @@ function CaseManagementPanel({
   onDownloadJson,
   onOpenHtml,
   onGenerateCopilot,
+  canOperate,
 }) {
   return (
     <section className="case-panel">
@@ -890,10 +944,10 @@ function CaseManagementPanel({
                   </div>
 
                   <div className="action-row">
-                    <button type="button" disabled={state === "saving"} onClick={onUpdateCase}>
+                    <button type="button" disabled={!canOperate || state === "saving"} onClick={onUpdateCase}>
                       {state === "saving" ? "Updating..." : "Update Case"}
                     </button>
-                    <button type="button" disabled={state === "saving"} onClick={onGenerateCopilot}>
+                    <button type="button" disabled={!canOperate || state === "saving"} onClick={onGenerateCopilot}>
                       Generate Copilot Guidance
                     </button>
                   </div>
@@ -921,7 +975,7 @@ function CaseManagementPanel({
                     />
                     <TextAreaField label="Note" name="content" value={noteForm.content} required onChange={onNoteFieldChange} />
                   </div>
-                  <button type="button" disabled={state === "saving"} onClick={onAddNote}>
+                  <button type="button" disabled={!canOperate || state === "saving"} onClick={onAddNote}>
                     Add Note
                   </button>
                   {notes.length === 0 ? (
@@ -960,7 +1014,7 @@ function CaseManagementPanel({
                       onChange={onEvidenceFieldChange}
                     />
                   </div>
-                  <button type="button" disabled={state === "saving"} onClick={onAddEvidence}>
+                  <button type="button" disabled={!canOperate || state === "saving"} onClick={onAddEvidence}>
                     Add Evidence
                   </button>
                   {evidence.length === 0 ? (
@@ -982,13 +1036,13 @@ function CaseManagementPanel({
               {activeTab === "report" && (
                 <div className="case-card">
                   <div className="report-actions">
-                    <button type="button" disabled={state === "saving"} onClick={onGenerateReport}>
+                    <button type="button" disabled={!canOperate || state === "saving"} onClick={onGenerateReport}>
                       Generate Report
                     </button>
-                    <button type="button" disabled={state === "saving" || !caseDetails} onClick={onDownloadJson}>
+                    <button type="button" disabled={!canOperate || state === "saving" || !caseDetails} onClick={onDownloadJson}>
                       Download JSON
                     </button>
-                    <button type="button" disabled={!caseDetails} onClick={onOpenHtml}>
+                    <button type="button" disabled={!canOperate || !caseDetails} onClick={onOpenHtml}>
                       Open Printable HTML
                     </button>
                   </div>
@@ -1037,7 +1091,7 @@ function CaseManagementPanel({
   );
 }
 
-function CorrelationPanel({ correlationState, correlationResult, correlationError, onRun }) {
+function CorrelationPanel({ correlationState, correlationResult, correlationError, onRun, canOperate }) {
   const chains = correlationResult?.chains ?? [];
 
   return (
@@ -1047,7 +1101,7 @@ function CorrelationPanel({ correlationState, correlationResult, correlationErro
           <h2>Attack Chains</h2>
           <p>Correlate events, alerts, assets, and incidents into source-IP attack paths.</p>
         </div>
-        <button type="button" disabled={correlationState === "running"} onClick={onRun}>
+        <button type="button" disabled={!canOperate || correlationState === "running"} onClick={onRun}>
           {correlationState === "running" ? "Correlating..." : "Run Correlation Engine"}
         </button>
       </div>
@@ -1095,7 +1149,7 @@ function CorrelationPanel({ correlationState, correlationResult, correlationErro
   );
 }
 
-function AlertSection({ alerts, onStatusChange, updatingKey }) {
+function AlertSection({ alerts, onStatusChange, updatingKey, canOperate }) {
   return (
     <section className="data-section workflow-section">
       <div className="section-heading">
@@ -1121,7 +1175,7 @@ function AlertSection({ alerts, onStatusChange, updatingKey }) {
                     <button
                       key={`${alert.id}-${action.status}`}
                       type="button"
-                      disabled={alert.status === action.status || updatingKey === `alert-${alert.id}`}
+                      disabled={!canOperate || alert.status === action.status || updatingKey === `alert-${alert.id}`}
                       onClick={() => onStatusChange(alert.id, action.status)}
                     >
                       {action.label}
@@ -1138,7 +1192,7 @@ function AlertSection({ alerts, onStatusChange, updatingKey }) {
   );
 }
 
-function IncidentSection({ incidents, onStatusChange, updatingKey }) {
+function IncidentSection({ incidents, onStatusChange, updatingKey, canOperate }) {
   return (
     <section className="data-section workflow-section">
       <div className="section-heading">
@@ -1163,7 +1217,7 @@ function IncidentSection({ incidents, onStatusChange, updatingKey }) {
                     <button
                       key={`${incident.id}-${action.status}`}
                       type="button"
-                      disabled={incident.status === action.status || updatingKey === `incident-${incident.id}`}
+                      disabled={!canOperate || incident.status === action.status || updatingKey === `incident-${incident.id}`}
                       onClick={() => onStatusChange(incident.id, action.status)}
                     >
                       {action.label}
@@ -1215,6 +1269,17 @@ function ActivitySection({ activity }) {
 }
 
 export default function Dashboard() {
+  const [currentUser, setCurrentUser] = useState(null);
+  const [authMode, setAuthMode] = useState("login");
+  const [authState, setAuthState] = useState("checking");
+  const [authError, setAuthError] = useState("");
+  const [authForm, setAuthForm] = useState({
+    full_name: "",
+    email: "",
+    username: "",
+    password: "",
+    role: "analyst",
+  });
   const [data, setData] = useState({
     assets: [],
     events: [],
@@ -1277,8 +1342,36 @@ export default function Dashboard() {
   const [liveNotice, setLiveNotice] = useState("");
 
   const realtimeStatus = useRealtimeAlerts({ onMessage: handleRealtimeMessage });
+  const canOperate = currentUser?.role === "admin" || currentUser?.role === "analyst";
 
   useEffect(() => {
+    async function loadSession() {
+      if (!getStoredToken()) {
+        setAuthState("anonymous");
+        return;
+      }
+      try {
+        const user = await apiGet("/api/auth/me");
+        setCurrentUser(user);
+        setAuthState("authenticated");
+      } catch {
+        setAuthState("anonymous");
+      }
+    }
+
+    loadSession();
+
+    function handleExpired() {
+      setCurrentUser(null);
+      setAuthState("anonymous");
+    }
+
+    window.addEventListener("hexsoc-auth-expired", handleExpired);
+    return () => window.removeEventListener("hexsoc-auth-expired", handleExpired);
+  }, []);
+
+  useEffect(() => {
+    if (!currentUser) return;
     let isMounted = true;
 
     async function loadDashboard() {
@@ -1304,7 +1397,7 @@ export default function Dashboard() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
     if (!selectedCaseId && data.incidents.length > 0) {
@@ -1723,7 +1816,10 @@ export default function Dashboard() {
     try {
       setCaseState("saving");
       setCaseError("");
-      const response = await fetch(`${API_BASE_URL}/api/cases/${selectedCaseId}/report/json`);
+      const token = getStoredToken();
+      const response = await fetch(`${API_BASE_URL}/api/cases/${selectedCaseId}/report/json`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       if (!response.ok) {
         throw new Error(`Report download failed: ${response.status}`);
       }
@@ -1746,7 +1842,9 @@ export default function Dashboard() {
 
   function handleOpenCaseHtml() {
     if (!selectedCaseId) return;
-    window.open(`${API_BASE_URL}/api/cases/${selectedCaseId}/report/html`, "_blank", "noopener,noreferrer");
+    const token = getStoredToken();
+    const query = token ? `?token=${encodeURIComponent(token)}` : "";
+    window.open(`${API_BASE_URL}/api/cases/${selectedCaseId}/report/html${query}`, "_blank", "noopener,noreferrer");
   }
 
   async function handleGenerateCaseCopilot() {
@@ -1764,6 +1862,57 @@ export default function Dashboard() {
     }
   }
 
+  function handleAuthFieldChange(name, value) {
+    setAuthForm((currentForm) => ({ ...currentForm, [name]: value }));
+  }
+
+  async function handleAuthSubmit(event) {
+    event.preventDefault();
+    try {
+      setAuthState("loading");
+      setAuthError("");
+      if (authMode === "register") {
+        await register(authForm);
+      }
+      const response = await login({ username: authForm.username, password: authForm.password });
+      setStoredToken(response.access_token);
+      setCurrentUser(response.user);
+      setAuthState("authenticated");
+      setAuthForm((currentForm) => ({ ...currentForm, password: "" }));
+    } catch (requestError) {
+      setAuthError(requestError.message);
+      setAuthState("anonymous");
+    }
+  }
+
+  function handleLogout() {
+    clearStoredToken();
+    setCurrentUser(null);
+    setAuthState("anonymous");
+    setData({ assets: [], events: [], alerts: [], incidents: [], activity: [] });
+  }
+
+  if (authState === "checking" || authState === "loading") {
+    return <div className="state-panel">Checking analyst session...</div>;
+  }
+
+  if (!currentUser) {
+    return (
+      <AuthScreen
+        authMode={authMode}
+        authForm={authForm}
+        authError={authError}
+        authState={authState}
+        onModeChange={(mode) => {
+          setAuthMode(mode);
+          setAuthError("");
+        }}
+        onFieldChange={handleAuthFieldChange}
+        onSubmit={handleAuthSubmit}
+      />
+    );
+  }
+
   return (
     <main className="app-shell">
       <section className="page-header">
@@ -1772,6 +1921,8 @@ export default function Dashboard() {
         <div className="status-line">
           <span>Live backend: {import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:9000"}</span>
           <RealtimeBadge status={realtimeStatus} />
+          <span className="role-badge">{currentUser.full_name} | {currentUser.role}</span>
+          <button type="button" className="logout-button" onClick={handleLogout}>Logout</button>
         </div>
         {liveNotice && <div className="live-toast">{liveNotice}</div>}
       </section>
@@ -1799,6 +1950,7 @@ export default function Dashboard() {
           }}
           onFieldChange={handleFieldChange}
           onSubmit={handleCreateRecord}
+          canOperate={canOperate}
         />
       )}
 
@@ -1808,6 +1960,7 @@ export default function Dashboard() {
           detectionResult={detectionResult}
           detectionError={detectionError}
           onRun={handleRunDetectionEngine}
+          canOperate={canOperate}
         />
       )}
 
@@ -1817,6 +1970,7 @@ export default function Dashboard() {
           threatResult={threatResult}
           threatError={threatError}
           onRun={handleRunThreatIntel}
+          canOperate={canOperate}
         />
       )}
 
@@ -1826,6 +1980,7 @@ export default function Dashboard() {
           correlationResult={correlationResult}
           correlationError={correlationError}
           onRun={handleRunCorrelationEngine}
+          canOperate={canOperate}
         />
       )}
 
@@ -1842,6 +1997,7 @@ export default function Dashboard() {
           onNodeSelect={setSelectedGraphNode}
           onAnalyzeNode={handleAnalyzeGraphNode}
           onZoomChange={setGraphZoom}
+          canOperate={canOperate}
         />
       )}
 
@@ -1863,6 +2019,7 @@ export default function Dashboard() {
           }}
           onTargetChange={setCopilotTargetId}
           onAnalyze={handleRunCopilotAnalysis}
+          canOperate={canOperate}
         />
       )}
 
@@ -1897,6 +2054,7 @@ export default function Dashboard() {
           onDownloadJson={handleDownloadCaseJson}
           onOpenHtml={handleOpenCaseHtml}
           onGenerateCopilot={handleGenerateCaseCopilot}
+          canOperate={canOperate}
         />
       )}
 
@@ -1915,11 +2073,13 @@ export default function Dashboard() {
             alerts={data.alerts}
             onStatusChange={handleAlertStatusChange}
             updatingKey={updatingKey}
+            canOperate={canOperate}
           />
           <IncidentSection
             incidents={data.incidents}
             onStatusChange={handleIncidentStatusChange}
             updatingKey={updatingKey}
+            canOperate={canOperate}
           />
           <ActivitySection activity={data.activity} />
         </div>

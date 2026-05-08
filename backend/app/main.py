@@ -5,6 +5,7 @@ from app.api.routes import (
     activity,
     alerts,
     assets,
+    auth,
     cases,
     copilot,
     correlation,
@@ -56,6 +57,7 @@ def on_startup() -> None:
 app.include_router(health.router, prefix=settings.api_prefix)
 app.include_router(demo.router, prefix=f"{settings.api_prefix}/demo", tags=["demo"])
 app.include_router(activity.router, prefix=f"{settings.api_prefix}/activity", tags=["activity"])
+app.include_router(auth.router, prefix=f"{settings.api_prefix}/auth", tags=["auth"])
 app.include_router(assets.router, prefix=f"{settings.api_prefix}/assets", tags=["assets"])
 app.include_router(events.router, prefix=f"{settings.api_prefix}/events", tags=["events"])
 app.include_router(alerts.router, prefix=f"{settings.api_prefix}/alerts", tags=["alerts"])

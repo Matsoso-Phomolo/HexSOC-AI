@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.db import models
+from app.services.auth_service import require_role
 from app.services.detection_engine import RULES, run_detection_rules
 from app.services.websocket_manager import websocket_manager
 
@@ -15,7 +17,10 @@ def list_detections() -> dict[str, list]:
 
 
 @router.post("/run", summary="Run detection engine")
-async def run_detections(db: Session = Depends(get_db)) -> dict[str, int]:
+async def run_detections(
+    db: Session = Depends(get_db),
+    user: models.User = Depends(require_role("analyst")),
+) -> dict[str, int]:
     """Scan recent security events and create alerts for rule matches."""
     result = run_detection_rules(db)
     created_alerts = result.pop("_created_alerts", [])

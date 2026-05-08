@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from html import escape
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -15,19 +15,27 @@ from app.schemas.case import CaseEvidenceCreate, CaseEvidenceRead, CaseNoteCreat
 from app.schemas.incident import IncidentRead
 from app.services.activity_service import add_activity
 from app.services.ai_copilot_service import summarize_incident
+from app.services.auth_service import decode_access_token, get_current_user, require_role
 from app.services.websocket_manager import serialize_activity, websocket_manager
 
 router = APIRouter()
 
 
 @router.get("/", response_model=list[IncidentRead], summary="List cases")
-def list_cases(db: Session = Depends(get_db)) -> list[models.Incident]:
+def list_cases(
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+) -> list[models.Incident]:
     """Return incidents as SOC cases ordered by newest first."""
     return db.query(models.Incident).order_by(models.Incident.id.desc()).all()
 
 
 @router.get("/{incident_id}", response_model=IncidentRead, summary="Get case")
-def get_case(incident_id: int, db: Session = Depends(get_db)) -> models.Incident:
+def get_case(
+    incident_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+) -> models.Incident:
     """Return one incident case."""
     return _get_incident(db, incident_id)
 
@@ -37,6 +45,7 @@ async def update_case(
     incident_id: int,
     payload: CaseUpdate,
     db: Session = Depends(get_db),
+    user: models.User = Depends(require_role("analyst")),
 ) -> models.Incident:
     """Update assignment, priority, escalation, and case closure metadata."""
     incident = _get_incident(db, incident_id)
@@ -56,6 +65,8 @@ async def update_case(
                 entity_id=incident.id,
                 message=f"Case assigned to {payload.assigned_to or 'unassigned'}.",
                 severity=incident.severity or "info",
+                actor_username=user.username,
+                actor_role=user.role,
             )
         )
 
@@ -68,6 +79,8 @@ async def update_case(
                 entity_id=incident.id,
                 message=f"Case status changed from {previous_status or 'unset'} to {payload.case_status}.",
                 severity=incident.severity or "info",
+                actor_username=user.username,
+                actor_role=user.role,
             )
         )
 
@@ -80,6 +93,8 @@ async def update_case(
                 entity_id=incident.id,
                 message="Case metadata updated.",
                 severity=incident.severity or "info",
+                actor_username=user.username,
+                actor_role=user.role,
             )
         )
 
@@ -94,6 +109,7 @@ async def add_case_note(
     incident_id: int,
     payload: CaseNoteCreate,
     db: Session = Depends(get_db),
+    user: models.User = Depends(require_role("analyst")),
 ) -> models.CaseNote:
     """Add an analyst note to a case."""
     incident = _get_incident(db, incident_id)
@@ -110,6 +126,8 @@ async def add_case_note(
         entity_id=incident.id,
         message=f"Case note added by {note.author}: {note.note_type}.",
         severity=incident.severity or "info",
+        actor_username=user.username,
+        actor_role=user.role,
     )
     db.commit()
     db.refresh(note)
@@ -119,7 +137,11 @@ async def add_case_note(
 
 
 @router.get("/{incident_id}/notes", response_model=list[CaseNoteRead], summary="List case notes")
-def list_case_notes(incident_id: int, db: Session = Depends(get_db)) -> list[models.CaseNote]:
+def list_case_notes(
+    incident_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+) -> list[models.CaseNote]:
     """Return analyst notes for a case."""
     _get_incident(db, incident_id)
     return (
@@ -135,6 +157,7 @@ async def add_case_evidence(
     incident_id: int,
     payload: CaseEvidenceCreate,
     db: Session = Depends(get_db),
+    user: models.User = Depends(require_role("analyst")),
 ) -> models.CaseEvidence:
     """Add an evidence record to a case."""
     incident = _get_incident(db, incident_id)
@@ -151,6 +174,8 @@ async def add_case_evidence(
         entity_id=incident.id,
         message=f"Case evidence added: {evidence.title}.",
         severity=incident.severity or "info",
+        actor_username=user.username,
+        actor_role=user.role,
     )
     db.commit()
     db.refresh(evidence)
@@ -160,7 +185,11 @@ async def add_case_evidence(
 
 
 @router.get("/{incident_id}/evidence", response_model=list[CaseEvidenceRead], summary="List case evidence")
-def list_case_evidence(incident_id: int, db: Session = Depends(get_db)) -> list[models.CaseEvidence]:
+def list_case_evidence(
+    incident_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+) -> list[models.CaseEvidence]:
     """Return evidence records for a case."""
     _get_incident(db, incident_id)
     return (
@@ -172,7 +201,11 @@ def list_case_evidence(incident_id: int, db: Session = Depends(get_db)) -> list[
 
 
 @router.get("/{incident_id}/report", summary="Generate case report")
-async def generate_case_report(incident_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+async def generate_case_report(
+    incident_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(require_role("analyst")),
+) -> dict[str, Any]:
     """Return a structured JSON SOC case report."""
     incident = _get_incident(db, incident_id)
     activity = add_activity(
@@ -182,6 +215,8 @@ async def generate_case_report(incident_id: int, db: Session = Depends(get_db)) 
         entity_id=incident.id,
         message=f"JSON SOC report generated for case {incident.id}.",
         severity=incident.severity or "info",
+        actor_username=user.username,
+        actor_role=user.role,
     )
     db.commit()
     db.refresh(activity)
@@ -190,7 +225,11 @@ async def generate_case_report(incident_id: int, db: Session = Depends(get_db)) 
 
 
 @router.get("/{incident_id}/report/json", summary="Download case report JSON")
-async def export_case_report_json(incident_id: int, db: Session = Depends(get_db)) -> JSONResponse:
+async def export_case_report_json(
+    incident_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(require_role("analyst")),
+) -> JSONResponse:
     """Return a downloadable structured JSON case report."""
     incident = _get_incident(db, incident_id)
     activity = add_activity(
@@ -200,6 +239,8 @@ async def export_case_report_json(incident_id: int, db: Session = Depends(get_db
         entity_id=incident.id,
         message=f"JSON SOC report exported for case {incident.id}.",
         severity=incident.severity or "info",
+        actor_username=user.username,
+        actor_role=user.role,
     )
     db.commit()
     db.refresh(activity)
@@ -213,8 +254,15 @@ async def export_case_report_json(incident_id: int, db: Session = Depends(get_db
 
 
 @router.get("/{incident_id}/report/html", response_class=HTMLResponse, summary="Open printable case report")
-async def export_case_report_html(incident_id: int, db: Session = Depends(get_db)) -> HTMLResponse:
+async def export_case_report_html(
+    incident_id: int,
+    token: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
     """Return a printable HTML case report with embedded styling."""
+    user = _user_from_query_token(db, token)
+    if user.role not in {"admin", "analyst"}:
+        raise HTTPException(status_code=403, detail="Insufficient role")
     incident = _get_incident(db, incident_id)
     activity = add_activity(
         db,
@@ -223,6 +271,8 @@ async def export_case_report_html(incident_id: int, db: Session = Depends(get_db
         entity_id=incident.id,
         message=f"Printable HTML SOC report exported for case {incident.id}.",
         severity=incident.severity or "info",
+        actor_username=user.username,
+        actor_role=user.role,
     )
     db.commit()
     db.refresh(activity)
@@ -236,6 +286,16 @@ def _get_incident(db: Session, incident_id: int) -> models.Incident:
     if incident is None:
         raise HTTPException(status_code=404, detail="Case not found")
     return incident
+
+
+def _user_from_query_token(db: Session, token: str | None) -> models.User:
+    if not token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    payload = decode_access_token(token)
+    user = db.get(models.User, int(payload["sub"]))
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=401, detail="Inactive or missing user")
+    return user
 
 
 async def _broadcast_case(

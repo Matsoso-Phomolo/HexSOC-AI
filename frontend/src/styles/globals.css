@@ -8,6 +8,36 @@ body {
   margin: 0;
 }
 
+.auth-shell {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.auth-card {
+  border: 1px solid #203047;
+  border-radius: 8px;
+  background: #111a2b;
+  max-width: 720px;
+  padding: 24px;
+  width: 100%;
+}
+
+.auth-card p {
+  color: #7dd3fc;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+}
+
+.auth-card h1 {
+  margin: 0;
+}
+
 .app-shell {
   min-height: 100vh;
   padding: 32px;
@@ -83,6 +113,29 @@ body {
   font-size: 13px;
   margin-top: 14px;
   padding: 8px 11px;
+}
+
+.role-badge {
+  border: 1px solid #2e425f;
+  border-radius: 999px;
+  background: #18243a;
+  color: #e5edf6;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 4px 10px;
+  text-transform: uppercase;
+}
+
+.logout-button {
+  border: 1px solid #2e425f;
+  border-radius: 6px;
+  background: #0b1220;
+  color: #e5edf6;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 10px;
 }
 
 .state-panel {

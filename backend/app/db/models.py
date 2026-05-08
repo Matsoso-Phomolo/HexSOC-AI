@@ -100,6 +100,21 @@ class Incident(Base, TimestampMixin):
     closed_at = Column(DateTime(timezone=True), nullable=True)
 
 
+class User(Base):
+    """SOC platform user for authenticated analyst workflows."""
+
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    full_name = Column(String(255), nullable=False)
+    email = Column(String(255), nullable=False, unique=True, index=True)
+    username = Column(String(120), nullable=False, unique=True, index=True)
+    hashed_password = Column(String(500), nullable=False)
+    role = Column(String(40), nullable=False, default="analyst", index=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class CaseNote(Base):
     """Analyst note attached to an incident case."""
 
@@ -139,4 +154,6 @@ class ActivityLog(Base):
     entity_id = Column(Integer, nullable=True, index=True)
     message = Column(String(500), nullable=False)
     severity = Column(String(40), nullable=False, default="info", index=True)
+    actor_username = Column(String(120), nullable=True)
+    actor_role = Column(String(40), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

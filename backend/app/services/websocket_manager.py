@@ -44,6 +44,8 @@ def serialize_activity(activity: Any) -> dict[str, Any]:
         "entity_id": activity.entity_id,
         "message": activity.message,
         "severity": activity.severity,
+        "actor_username": activity.actor_username,
+        "actor_role": activity.actor_role,
         "created_at": _iso_datetime(activity.created_at),
     }
 

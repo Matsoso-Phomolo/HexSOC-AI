@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.db import models
+from app.services.auth_service import require_role
 from app.services.correlation_engine import run_correlation
 from app.services.websocket_manager import serialize_activity, websocket_manager
 
@@ -13,7 +15,10 @@ router = APIRouter()
 
 
 @router.post("/run", summary="Run correlation engine")
-async def run_correlation_engine(db: Session = Depends(get_db)) -> dict[str, Any]:
+async def run_correlation_engine(
+    db: Session = Depends(get_db),
+    user: models.User = Depends(require_role("analyst")),
+) -> dict[str, Any]:
     """Build attack-chain candidates from current SOC records."""
     result = run_correlation(db)
     activity = result.pop("activity")

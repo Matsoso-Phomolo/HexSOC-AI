@@ -5,13 +5,18 @@ from app.api.deps import get_db
 from app.db import models
 from app.schemas.incident import IncidentCreate, IncidentRead, IncidentStatusUpdate
 from app.services.activity_service import add_activity
+from app.services.auth_service import require_role
 from app.services.websocket_manager import serialize_activity, websocket_manager
 
 router = APIRouter()
 
 
 @router.post("/", response_model=IncidentRead, status_code=201, summary="Create incident")
-async def create_incident(payload: IncidentCreate, db: Session = Depends(get_db)) -> models.Incident:
+async def create_incident(
+    payload: IncidentCreate,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(require_role("analyst")),
+) -> models.Incident:
     """Store an incident case for security response."""
     incident = models.Incident(**payload.dict())
     db.add(incident)
@@ -44,6 +49,7 @@ async def update_incident_status(
     incident_id: int,
     payload: IncidentStatusUpdate,
     db: Session = Depends(get_db),
+    user: models.User = Depends(require_role("analyst")),
 ) -> models.Incident:
     """Update the lifecycle status for an incident."""
     incident = db.get(models.Incident, incident_id)

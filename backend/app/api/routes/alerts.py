@@ -5,13 +5,18 @@ from app.api.deps import get_db
 from app.db import models
 from app.schemas.alert import AlertCreate, AlertRead, AlertStatusUpdate
 from app.services.activity_service import add_activity
+from app.services.auth_service import require_role
 from app.services.websocket_manager import serialize_activity, serialize_alert, websocket_manager
 
 router = APIRouter()
 
 
 @router.post("/", response_model=AlertRead, status_code=201, summary="Create alert")
-async def create_alert(payload: AlertCreate, db: Session = Depends(get_db)) -> models.Alert:
+async def create_alert(
+    payload: AlertCreate,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(require_role("analyst")),
+) -> models.Alert:
     """Store an analyst-facing alert."""
     alert = models.Alert(**payload.dict())
     db.add(alert)
@@ -45,6 +50,7 @@ async def update_alert_status(
     alert_id: int,
     payload: AlertStatusUpdate,
     db: Session = Depends(get_db),
+    user: models.User = Depends(require_role("analyst")),
 ) -> models.Alert:
     """Update the lifecycle status for an alert."""
     alert = db.get(models.Alert, alert_id)
