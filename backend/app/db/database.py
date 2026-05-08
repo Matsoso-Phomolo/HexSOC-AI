@@ -121,15 +121,19 @@ def sync_phase2_schema() -> None:
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(40)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL",
+        "CREATE SEQUENCE IF NOT EXISTS users_id_seq OWNED BY users.id",
+        "ALTER SEQUENCE users_id_seq OWNED BY users.id",
+        "ALTER TABLE users ALTER COLUMN id SET DEFAULT nextval('users_id_seq')",
         "UPDATE users SET role = 'analyst' WHERE role IS NULL",
         "UPDATE users SET is_active = true WHERE is_active IS NULL",
         "ALTER TABLE users ALTER COLUMN role SET DEFAULT 'analyst'",
         "ALTER TABLE users ALTER COLUMN is_active SET DEFAULT true",
+        "ALTER TABLE users ALTER COLUMN created_at SET DEFAULT now()",
         "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email ON users (email)",
         "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_username ON users (username)",
         """
         SELECT setval(
-            pg_get_serial_sequence('users', 'id'),
+            'users_id_seq',
             GREATEST(COALESCE((SELECT MAX(id) FROM users), 0), 1),
             (SELECT COUNT(*) > 0 FROM users)
         )
