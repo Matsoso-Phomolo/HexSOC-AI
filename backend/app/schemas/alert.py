@@ -12,6 +12,10 @@ class AlertCreate(BaseModel):
     source: str | None = None
     description: str | None = None
     event_id: int | None = None
+    mitre_tactic: str | None = None
+    mitre_technique: str | None = None
+    confidence_score: int | None = None
+    detection_rule: str | None = None
 
 
 class AlertStatusUpdate(BaseModel):

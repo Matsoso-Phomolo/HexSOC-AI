@@ -43,6 +43,10 @@ class Alert(Base, TimestampMixin):
     source = Column(String(120), nullable=True)
     description = Column(Text, nullable=True)
     event_id = Column(Integer, ForeignKey("security_events.id"), nullable=True, index=True)
+    mitre_tactic = Column(String(120), nullable=True)
+    mitre_technique = Column(String(120), nullable=True)
+    confidence_score = Column(Integer, nullable=True)
+    detection_rule = Column(String(120), nullable=True, index=True)
 
 
 class Asset(Base, TimestampMixin):

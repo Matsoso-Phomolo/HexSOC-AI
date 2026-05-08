@@ -331,6 +331,28 @@ function CreateRecordPanel({
   );
 }
 
+function DetectionPanel({ detectionState, detectionResult, detectionError, onRun }) {
+  return (
+    <section className="detection-panel">
+      <div>
+        <h2>Detection Engine</h2>
+        <p>Run deterministic SOC rules against recent security events before AI enrichment.</p>
+      </div>
+      <button type="button" disabled={detectionState === "running"} onClick={onRun}>
+        {detectionState === "running" ? "Running..." : "Run Detection Engine"}
+      </button>
+      {detectionResult && (
+        <div className="detection-result">
+          <span>Rules checked: {detectionResult.rules_checked}</span>
+          <span>Matches found: {detectionResult.matches_found}</span>
+          <span>Alerts created: {detectionResult.alerts_created}</span>
+        </div>
+      )}
+      {detectionError && <span className="form-error">{detectionError}</span>}
+    </section>
+  );
+}
+
 function AlertSection({ alerts, onStatusChange, updatingKey }) {
   return (
     <section className="data-section workflow-section">
@@ -465,6 +487,9 @@ export default function Dashboard() {
   const [submitState, setSubmitState] = useState("idle");
   const [submitMessage, setSubmitMessage] = useState("");
   const [submitError, setSubmitError] = useState("");
+  const [detectionState, setDetectionState] = useState("idle");
+  const [detectionResult, setDetectionResult] = useState(null);
+  const [detectionError, setDetectionError] = useState("");
 
   useEffect(() => {
     let isMounted = true;
@@ -638,6 +663,20 @@ export default function Dashboard() {
     }
   }
 
+  async function handleRunDetectionEngine() {
+    try {
+      setDetectionState("running");
+      setDetectionError("");
+      const result = await apiPost("/api/detections/run", {});
+      setDetectionResult(result);
+      await refreshSlices(["alerts", "activity"]);
+    } catch (requestError) {
+      setDetectionError(requestError.message);
+    } finally {
+      setDetectionState("idle");
+    }
+  }
+
   return (
     <main className="app-shell">
       <section className="page-header">
@@ -669,6 +708,15 @@ export default function Dashboard() {
           }}
           onFieldChange={handleFieldChange}
           onSubmit={handleCreateRecord}
+        />
+      )}
+
+      {status === "ready" && (
+        <DetectionPanel
+          detectionState={detectionState}
+          detectionResult={detectionResult}
+          detectionError={detectionError}
+          onRun={handleRunDetectionEngine}
         />
       )}
 

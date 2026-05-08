@@ -68,6 +68,59 @@ body {
   padding: 18px;
 }
 
+.detection-panel {
+  align-items: flex-start;
+  border: 1px solid #203047;
+  border-radius: 8px;
+  background: #101c2f;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 1fr auto;
+  margin-top: 16px;
+  padding: 18px;
+}
+
+.detection-panel h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.detection-panel p {
+  color: #93a4b8;
+  margin: 6px 0 0;
+}
+
+.detection-panel button {
+  border: 1px solid #38bdf8;
+  border-radius: 6px;
+  background: #1e3a5f;
+  color: #e5edf6;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  padding: 9px 12px;
+}
+
+.detection-panel button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.detection-result {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  grid-column: 1 / -1;
+}
+
+.detection-result span {
+  border: 1px solid #2e425f;
+  border-radius: 999px;
+  color: #bae6fd;
+  font-size: 13px;
+  padding: 4px 9px;
+}
+
 .tab-row {
   display: flex;
   flex-wrap: wrap;
@@ -354,6 +407,10 @@ body {
 
   .workflow-section {
     grid-column: auto;
+  }
+
+  .detection-panel {
+    grid-template-columns: 1fr;
   }
 
   .data-list li,
