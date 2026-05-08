@@ -14,6 +14,7 @@ from app.api.routes import (
     events,
     graph,
     health,
+    ingestion,
     incidents,
     realtime,
     threat_intel,
@@ -70,5 +71,6 @@ app.include_router(copilot.router, prefix=f"{settings.api_prefix}/copilot", tags
 app.include_router(correlation.router, prefix=f"{settings.api_prefix}/correlation", tags=["correlation"])
 app.include_router(threat_intel.router, prefix=f"{settings.api_prefix}/threat-intel", tags=["threat-intel"])
 app.include_router(graph.router, prefix=f"{settings.api_prefix}/graph", tags=["graph"])
+app.include_router(ingestion.router, prefix=f"{settings.api_prefix}/ingestion", tags=["ingestion"])
 app.include_router(websocket.router, prefix=f"{settings.api_prefix}/ws", tags=["websocket"])
 app.include_router(realtime.router, tags=["realtime"])

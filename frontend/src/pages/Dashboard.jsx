@@ -90,6 +90,77 @@ const nodeColors = {
   threat_intel: "#c084fc",
 };
 
+const sampleIngestionLogs = {
+  logs: [
+    {
+      timestamp: "2026-05-08T10:00:00Z",
+      event_type: "failed_login",
+      source: "windows_event_log",
+      source_ip: "203.0.113.45",
+      destination_ip: "10.0.0.10",
+      username: "svc_backup",
+      hostname: "prod-web-01",
+      severity: "medium",
+      raw_message: "Failed login attempt for svc_backup from external source.",
+    },
+    {
+      timestamp: "2026-05-08T10:01:00Z",
+      event_type: "failed_login",
+      source: "windows_event_log",
+      source_ip: "203.0.113.45",
+      destination_ip: "10.0.0.10",
+      username: "svc_backup",
+      hostname: "prod-web-01",
+      severity: "medium",
+      raw_message: "Repeated failed login attempt for svc_backup.",
+    },
+    {
+      timestamp: "2026-05-08T10:02:00Z",
+      event_type: "failed_login",
+      source: "windows_event_log",
+      source_ip: "203.0.113.45",
+      destination_ip: "10.0.0.10",
+      username: "svc_backup",
+      hostname: "prod-web-01",
+      severity: "medium",
+      raw_message: "Repeated failed login attempt for svc_backup.",
+    },
+    {
+      timestamp: "2026-05-08T10:03:00Z",
+      event_type: "failed_login",
+      source: "windows_event_log",
+      source_ip: "203.0.113.45",
+      destination_ip: "10.0.0.10",
+      username: "svc_backup",
+      hostname: "prod-web-01",
+      severity: "high",
+      raw_message: "Repeated failed login attempt for svc_backup.",
+    },
+    {
+      timestamp: "2026-05-08T10:04:00Z",
+      event_type: "failed_login",
+      source: "windows_event_log",
+      source_ip: "203.0.113.45",
+      destination_ip: "10.0.0.10",
+      username: "svc_backup",
+      hostname: "prod-web-01",
+      severity: "high",
+      raw_message: "Fifth failed login attempt for svc_backup.",
+    },
+    {
+      timestamp: "2026-05-08T10:11:00Z",
+      event_type: "malware_indicator",
+      source: "edr",
+      source_ip: "10.0.22.47",
+      destination_ip: "10.0.22.47",
+      username: "jane.finance",
+      hostname: "finance-laptop-07",
+      severity: "critical",
+      raw_message: "Trojan loader behavior detected with ransomware staging indicators.",
+    },
+  ],
+};
+
 function cleanOptionalNumber(value) {
   return value === "" ? null : Number(value);
 }
@@ -509,6 +580,80 @@ function DetectionPanel({ detectionState, detectionResult, detectionError, onRun
         </div>
       )}
       {detectionError && <span className="form-error">{detectionError}</span>}
+    </section>
+  );
+}
+
+function LogIngestionPanel({
+  value,
+  autoDetect,
+  state,
+  result,
+  error,
+  onChange,
+  onAutoDetectChange,
+  onLoadSample,
+  onIngest,
+  canOperate,
+}) {
+  return (
+    <section className="ingestion-panel">
+      <div className="section-heading">
+        <div>
+          <h2>Log Ingestion Pipeline</h2>
+          <p>Paste normalized JSON telemetry from Sysmon, EDR, DNS, firewall, or collector pipelines.</p>
+        </div>
+        <button type="button" onClick={onLoadSample}>
+          Load Sample JSON
+        </button>
+      </div>
+
+      <label className="ingestion-textarea">
+        <span>JSON logs</span>
+        <textarea
+          value={value}
+          rows={10}
+          placeholder='{"logs":[{"event_type":"failed_login","source":"windows_event_log","severity":"high"}]}'
+          onChange={(event) => onChange(event.target.value)}
+        />
+      </label>
+
+      <div className="ingestion-actions">
+        <label className="checkbox-label">
+          <input
+            type="checkbox"
+            checked={autoDetect}
+            disabled={!canOperate || state === "running"}
+            onChange={(event) => onAutoDetectChange(event.target.checked)}
+          />
+          <span>Run detection after ingest</span>
+        </label>
+        <button type="button" disabled={!canOperate || state === "running"} onClick={onIngest}>
+          {state === "running" ? "Ingesting..." : "Ingest Logs"}
+        </button>
+      </div>
+
+      {!canOperate && <p className="empty-state">Viewer role is read-only. Admin or analyst access is required to ingest logs.</p>}
+      {error && <span className="form-error">{error}</span>}
+
+      {result && (
+        <div className="detection-result">
+          <span>Received: {result.received}</span>
+          <span>Ingested: {result.ingested}</span>
+          <span>Skipped: {result.skipped}</span>
+          <span>Assets created: {result.assets_created}</span>
+          <span>Detections: {result.detections_run ? "run" : "not run"}</span>
+          <span>Alerts: {result.detection_summary?.alerts_created ?? 0}</span>
+        </div>
+      )}
+
+      {result?.validation_errors?.length > 0 && (
+        <ul className="ingestion-errors">
+          {result.validation_errors.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
@@ -1451,6 +1596,11 @@ export default function Dashboard() {
   const [detectionState, setDetectionState] = useState("idle");
   const [detectionResult, setDetectionResult] = useState(null);
   const [detectionError, setDetectionError] = useState("");
+  const [ingestionText, setIngestionText] = useState(JSON.stringify(sampleIngestionLogs, null, 2));
+  const [ingestionAutoDetect, setIngestionAutoDetect] = useState(true);
+  const [ingestionState, setIngestionState] = useState("idle");
+  const [ingestionResult, setIngestionResult] = useState(null);
+  const [ingestionError, setIngestionError] = useState("");
   const [threatState, setThreatState] = useState("idle");
   const [threatResult, setThreatResult] = useState(null);
   const [threatError, setThreatError] = useState("");
@@ -1677,6 +1827,11 @@ export default function Dashboard() {
       await loadGraph();
     }
 
+    if (["event_ingested", "bulk_ingestion_completed"].includes(message.type)) {
+      await refreshSlices(["events", "assets", "alerts", "activity"]);
+      await loadGraph();
+    }
+
     if (
       ["case_updated", "case_note_added", "case_evidence_added", "case_report_generated", "case_report_exported"].includes(
         message.type,
@@ -1846,6 +2001,32 @@ export default function Dashboard() {
       setDetectionError(requestError.message);
     } finally {
       setDetectionState("idle");
+    }
+  }
+
+  async function handleIngestLogs() {
+    try {
+      setIngestionState("running");
+      setIngestionError("");
+      setIngestionResult(null);
+      const parsed = JSON.parse(ingestionText);
+      const payload = Array.isArray(parsed) ? { logs: parsed } : parsed;
+
+      if (!Array.isArray(payload.logs)) {
+        throw new Error("JSON must be an array of logs or an object with a logs array.");
+      }
+
+      const result = await apiPost(
+        `/api/ingestion/events/bulk?auto_detect=${ingestionAutoDetect ? "true" : "false"}`,
+        payload,
+      );
+      setIngestionResult(result);
+      await refreshSlices(["events", "assets", "alerts", "activity"]);
+      await loadGraph();
+    } catch (requestError) {
+      setIngestionError(requestError.message);
+    } finally {
+      setIngestionState("idle");
     }
   }
 
@@ -2251,6 +2432,24 @@ export default function Dashboard() {
           detectionResult={detectionResult}
           detectionError={detectionError}
           onRun={handleRunDetectionEngine}
+          canOperate={canOperate}
+        />
+      )}
+
+      {status === "ready" && (
+        <LogIngestionPanel
+          value={ingestionText}
+          autoDetect={ingestionAutoDetect}
+          state={ingestionState}
+          result={ingestionResult}
+          error={ingestionError}
+          onChange={setIngestionText}
+          onAutoDetectChange={setIngestionAutoDetect}
+          onLoadSample={() => {
+            setIngestionText(JSON.stringify(sampleIngestionLogs, null, 2));
+            setIngestionError("");
+          }}
+          onIngest={handleIngestLogs}
           canOperate={canOperate}
         />
       )}

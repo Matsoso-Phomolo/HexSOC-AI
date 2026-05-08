@@ -1,0 +1,165 @@
+{
+  "logs": [
+    {
+      "timestamp": "2026-05-08T10:00:00Z",
+      "event_type": "failed_login",
+      "source": "windows_event_log",
+      "source_ip": "203.0.113.45",
+      "destination_ip": "10.0.0.10",
+      "username": "svc_backup",
+      "hostname": "prod-web-01",
+      "severity": "medium",
+      "raw_message": "Failed login attempt for svc_backup from external source."
+    },
+    {
+      "timestamp": "2026-05-08T10:01:00Z",
+      "event_type": "failed_login",
+      "source": "windows_event_log",
+      "source_ip": "203.0.113.45",
+      "destination_ip": "10.0.0.10",
+      "username": "svc_backup",
+      "hostname": "prod-web-01",
+      "severity": "medium",
+      "raw_message": "Repeated failed login attempt for svc_backup."
+    },
+    {
+      "timestamp": "2026-05-08T10:02:00Z",
+      "event_type": "failed_login",
+      "source": "windows_event_log",
+      "source_ip": "203.0.113.45",
+      "destination_ip": "10.0.0.10",
+      "username": "svc_backup",
+      "hostname": "prod-web-01",
+      "severity": "medium",
+      "raw_message": "Repeated failed login attempt for svc_backup."
+    },
+    {
+      "timestamp": "2026-05-08T10:03:00Z",
+      "event_type": "failed_login",
+      "source": "windows_event_log",
+      "source_ip": "203.0.113.45",
+      "destination_ip": "10.0.0.10",
+      "username": "svc_backup",
+      "hostname": "prod-web-01",
+      "severity": "medium",
+      "raw_message": "Repeated failed login attempt for svc_backup."
+    },
+    {
+      "timestamp": "2026-05-08T10:04:00Z",
+      "event_type": "failed_login",
+      "source": "windows_event_log",
+      "source_ip": "203.0.113.45",
+      "destination_ip": "10.0.0.10",
+      "username": "svc_backup",
+      "hostname": "prod-web-01",
+      "severity": "high",
+      "raw_message": "Fifth failed login attempt for svc_backup."
+    },
+    {
+      "timestamp": "2026-05-08T10:06:00Z",
+      "event_type": "login_success",
+      "source": "windows_event_log",
+      "source_ip": "198.51.100.23",
+      "destination_ip": "10.0.1.5",
+      "username": "domain_admin",
+      "hostname": "corp-dc-01",
+      "severity": "high",
+      "raw_message": "Successful privileged login from unusual external source."
+    },
+    {
+      "timestamp": "2026-05-08T10:08:00Z",
+      "event_type": "process_creation",
+      "source": "sysmon",
+      "source_ip": "10.0.22.47",
+      "destination_ip": "10.0.22.47",
+      "username": "jane.finance",
+      "hostname": "finance-laptop-07",
+      "severity": "medium",
+      "raw_message": "Office process spawned command shell.",
+      "process_name": "cmd.exe",
+      "parent_process": "winword.exe"
+    },
+    {
+      "timestamp": "2026-05-08T10:09:00Z",
+      "event_type": "suspicious_powershell",
+      "source": "sysmon",
+      "source_ip": "10.0.22.47",
+      "destination_ip": "10.0.22.47",
+      "username": "jane.finance",
+      "hostname": "finance-laptop-07",
+      "severity": "high",
+      "raw_message": "PowerShell launched with encoded command and hidden window.",
+      "process_name": "powershell.exe",
+      "command_line": "powershell.exe -EncodedCommand SQBFAFgA"
+    },
+    {
+      "timestamp": "2026-05-08T10:10:00Z",
+      "event_type": "network_connection",
+      "source": "sysmon",
+      "source_ip": "10.0.22.47",
+      "destination_ip": "185.199.110.153",
+      "username": "jane.finance",
+      "hostname": "finance-laptop-07",
+      "severity": "medium",
+      "raw_message": "Unusual outbound network connection from finance endpoint."
+    },
+    {
+      "timestamp": "2026-05-08T10:11:00Z",
+      "event_type": "malware_indicator",
+      "source": "edr",
+      "source_ip": "10.0.22.47",
+      "destination_ip": "10.0.22.47",
+      "username": "jane.finance",
+      "hostname": "finance-laptop-07",
+      "severity": "critical",
+      "raw_message": "Trojan loader behavior detected with ransomware staging indicators."
+    },
+    {
+      "timestamp": "2026-05-08T10:12:00Z",
+      "event_type": "privilege_escalation",
+      "source": "edr",
+      "source_ip": "10.0.22.47",
+      "destination_ip": "10.0.22.47",
+      "username": "jane.finance",
+      "hostname": "finance-laptop-07",
+      "severity": "high",
+      "raw_message": "Suspicious token privilege adjustment detected."
+    },
+    {
+      "timestamp": "2026-05-08T10:13:00Z",
+      "event_type": "file_modification",
+      "source": "sysmon",
+      "source_ip": "10.0.22.47",
+      "destination_ip": "10.0.22.47",
+      "username": "jane.finance",
+      "hostname": "finance-laptop-07",
+      "severity": "medium",
+      "raw_message": "Sensitive startup folder file modification detected.",
+      "file_path": "C:\\Users\\Public\\Start Menu\\Programs\\Startup\\updater.lnk"
+    },
+    {
+      "timestamp": "2026-05-08T10:14:00Z",
+      "event_type": "dns_query",
+      "source": "dns",
+      "source_ip": "10.0.22.47",
+      "destination_ip": "10.0.0.53",
+      "username": "jane.finance",
+      "hostname": "finance-laptop-07",
+      "severity": "medium",
+      "raw_message": "Suspicious DNS query for newly registered domain.",
+      "query": "cdn-update-check.example"
+    },
+    {
+      "timestamp": "2026-05-08T10:15:00Z",
+      "event_type": "lateral_movement",
+      "source": "sysmon",
+      "source_ip": "10.0.22.47",
+      "destination_ip": "10.0.1.5",
+      "username": "jane.finance",
+      "hostname": "corp-dc-01",
+      "severity": "critical",
+      "raw_message": "Remote service creation attempt targeting domain controller.",
+      "technique": "remote_service_creation"
+    }
+  ]
+}

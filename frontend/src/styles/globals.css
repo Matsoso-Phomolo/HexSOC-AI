@@ -173,7 +173,8 @@ body {
 }
 
 .detection-panel,
-.threat-panel {
+.threat-panel,
+.ingestion-panel {
   align-items: flex-start;
   border: 1px solid #203047;
   border-radius: 8px;
@@ -186,19 +187,22 @@ body {
 }
 
 .detection-panel h2,
-.threat-panel h2 {
+.threat-panel h2,
+.ingestion-panel h2 {
   margin: 0;
   font-size: 18px;
 }
 
 .detection-panel p,
-.threat-panel p {
+.threat-panel p,
+.ingestion-panel p {
   color: #93a4b8;
   margin: 6px 0 0;
 }
 
 .detection-panel button,
-.threat-panel button {
+.threat-panel button,
+.ingestion-panel button {
   border: 1px solid #38bdf8;
   border-radius: 6px;
   background: #1e3a5f;
@@ -210,9 +214,63 @@ body {
 }
 
 .detection-panel button:disabled,
-.threat-panel button:disabled {
+.threat-panel button:disabled,
+.ingestion-panel button:disabled {
   cursor: wait;
   opacity: 0.6;
+}
+
+.ingestion-panel {
+  grid-template-columns: 1fr;
+}
+
+.ingestion-panel .section-heading {
+  align-items: flex-start;
+}
+
+.ingestion-textarea {
+  display: grid;
+  gap: 8px;
+}
+
+.ingestion-textarea span,
+.checkbox-label span {
+  color: #93a4b8;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ingestion-textarea textarea {
+  border: 1px solid #2e425f;
+  border-radius: 6px;
+  background: #0b1220;
+  color: #e5edf6;
+  font: inherit;
+  min-height: 220px;
+  padding: 10px;
+  resize: vertical;
+}
+
+.ingestion-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.checkbox-label {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+}
+
+.ingestion-errors {
+  color: #fecdd3;
+  display: grid;
+  font-size: 13px;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
 }
 
 .detection-result {
