@@ -649,6 +649,158 @@ body {
   overflow-wrap: anywhere;
 }
 
+.graph-detail-actions {
+  border-top: 1px solid #203047;
+  margin-top: 14px;
+  padding-top: 12px;
+}
+
+.graph-detail-actions button {
+  width: 100%;
+}
+
+.copilot-panel {
+  border: 1px solid #203047;
+  border-radius: 8px;
+  background: #111a2b;
+  margin-top: 16px;
+  padding: 18px;
+}
+
+.copilot-panel .section-heading {
+  align-items: flex-start;
+}
+
+.copilot-panel h2,
+.copilot-card h3 {
+  margin: 0;
+}
+
+.copilot-panel p,
+.copilot-card p {
+  color: #cbd5e1;
+  line-height: 1.5;
+  margin: 6px 0 0;
+}
+
+.ai-badge,
+.confidence-badge {
+  border: 1px solid #2e425f;
+  border-radius: 999px;
+  color: #bae6fd;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 4px 10px;
+  text-transform: uppercase;
+}
+
+.ai-badge {
+  background: #1e3a5f;
+}
+
+.copilot-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.copilot-controls label {
+  display: grid;
+  gap: 7px;
+}
+
+.copilot-controls label span {
+  color: #93a4b8;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.copilot-controls select,
+.copilot-controls button {
+  border: 1px solid #2e425f;
+  border-radius: 6px;
+  background: #0b1220;
+  color: #e5edf6;
+  font: inherit;
+  min-width: 0;
+  padding: 9px 10px;
+}
+
+.copilot-controls button {
+  align-self: end;
+  background: #1e3a5f;
+  border-color: #38bdf8;
+  cursor: pointer;
+}
+
+.copilot-controls button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.copilot-context {
+  color: #93a4b8;
+  font-size: 13px;
+}
+
+.copilot-card {
+  border: 1px solid #2e425f;
+  border-radius: 8px;
+  background: #0d1728;
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 16px;
+}
+
+.copilot-card-header {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.confidence-track {
+  background: #203047;
+  border-radius: 999px;
+  height: 8px;
+  overflow: hidden;
+}
+
+.confidence-track span {
+  background: #38bdf8;
+  display: block;
+  height: 100%;
+}
+
+.recommendation-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.recommendation-list li {
+  border-left: 3px solid #38bdf8;
+  background: #101c2f;
+  border-radius: 6px;
+  color: #e5edf6;
+  padding: 9px 10px;
+}
+
+.analyst-note {
+  border: 1px solid #2e425f;
+  border-radius: 8px;
+  background: #101c2f;
+  color: #e5edf6;
+  padding: 12px;
+}
+
 .correlation-panel .section-heading {
   align-items: flex-start;
 }
@@ -740,6 +892,7 @@ body {
   }
 
   .graph-panel .section-heading,
+  .copilot-panel .section-heading,
   .correlation-panel .section-heading {
     flex-direction: column;
   }

@@ -495,6 +495,7 @@ function GraphInvestigationPanel({
   onFilterChange,
   onRefresh,
   onNodeSelect,
+  onAnalyzeNode,
   onZoomChange,
 }) {
   const nodes = layoutGraph(graphData?.nodes ?? []);
@@ -625,12 +626,150 @@ function GraphInvestigationPanel({
                     </div>
                   ))}
                 </dl>
+                {["alert", "incident"].includes(selectedNode.type) && (
+                  <div className="graph-detail-actions">
+                    <button type="button" onClick={() => onAnalyzeNode(selectedNode)}>
+                      Analyze {selectedNode.type}
+                    </button>
+                  </div>
+                )}
               </>
             ) : (
               <p>Select a node to inspect metadata.</p>
             )}
           </aside>
         </div>
+      )}
+    </section>
+  );
+}
+
+function CopilotPanel({
+  alerts,
+  incidents,
+  chains,
+  selectedNode,
+  copilotMode,
+  copilotTargetId,
+  copilotState,
+  copilotResult,
+  copilotError,
+  onModeChange,
+  onTargetChange,
+  onAnalyze,
+}) {
+  const chainOptions = chains ?? [];
+
+  return (
+    <section className="copilot-panel">
+      <div className="section-heading">
+        <div>
+          <h2>AI Analyst Copilot</h2>
+          <p>Deterministic SOC analyst reasoning for alerts, incidents, and attack chains.</p>
+        </div>
+        <span className="ai-badge">AI-ready</span>
+      </div>
+
+      <div className="copilot-controls">
+        <label>
+          <span>Analysis type</span>
+          <select value={copilotMode} onChange={(event) => onModeChange(event.target.value)}>
+            <option value="alert">Alert</option>
+            <option value="incident">Incident</option>
+            <option value="chain">Attack chain</option>
+          </select>
+        </label>
+
+        {copilotMode === "alert" && (
+          <label>
+            <span>Alert</span>
+            <select value={copilotTargetId} onChange={(event) => onTargetChange(event.target.value)}>
+              <option value="">Select alert</option>
+              {alerts.map((alert) => (
+                <option key={alert.id} value={alert.id}>
+                  #{alert.id} {alert.title}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {copilotMode === "incident" && (
+          <label>
+            <span>Incident</span>
+            <select value={copilotTargetId} onChange={(event) => onTargetChange(event.target.value)}>
+              <option value="">Select incident</option>
+              {incidents.map((incident) => (
+                <option key={incident.id} value={incident.id}>
+                  #{incident.id} {incident.title}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {copilotMode === "chain" && (
+          <label>
+            <span>Attack chain</span>
+            <select value={copilotTargetId} onChange={(event) => onTargetChange(event.target.value)}>
+              <option value="">Top chain</option>
+              {chainOptions.map((chain) => (
+                <option key={chain.source_ip} value={chain.source_ip}>
+                  {chain.source_ip} | Risk {chain.risk_score}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        <button type="button" disabled={copilotState === "loading"} onClick={onAnalyze}>
+          {copilotState === "loading" ? "Analyzing..." : "Run AI Analysis"}
+        </button>
+      </div>
+
+      {selectedNode && ["alert", "incident"].includes(selectedNode.type) && (
+        <p className="copilot-context">Graph selection: {selectedNode.id}</p>
+      )}
+
+      {copilotError && <span className="form-error">{copilotError}</span>}
+
+      {copilotResult && (
+        <article className="copilot-card">
+          <div className="copilot-card-header">
+            <span className="ai-badge">Analyst summary</span>
+            <span className={`confidence-badge threat-${threatLevel(copilotResult.confidence)}`}>
+              {copilotResult.confidence}% confidence
+            </span>
+          </div>
+          <div className="confidence-track">
+            <span style={{ width: `${copilotResult.confidence}%` }} />
+          </div>
+
+          <section>
+            <h3>Summary</h3>
+            <p>{copilotResult.summary}</p>
+          </section>
+          <section>
+            <h3>Risk Assessment</h3>
+            <p>{copilotResult.risk_assessment}</p>
+          </section>
+          <section>
+            <h3>MITRE Explanation</h3>
+            <p>{copilotResult.mitre_explanation}</p>
+          </section>
+          <section>
+            <h3>Recommended Response</h3>
+            <ul className="recommendation-list">
+              {copilotResult.recommended_actions.map((action) => (
+                <li key={action}>{action}</li>
+              ))}
+            </ul>
+          </section>
+          <section>
+            <h3>Investigation Notes</h3>
+            <p className="analyst-note">{copilotResult.investigation_notes}</p>
+          </section>
+        </article>
       )}
     </section>
   );
@@ -844,6 +983,11 @@ export default function Dashboard() {
   const [graphFilters, setGraphFilters] = useState({ source_ip: "", severity: "", limit: "150" });
   const [selectedGraphNode, setSelectedGraphNode] = useState(null);
   const [graphZoom, setGraphZoom] = useState(100);
+  const [copilotMode, setCopilotMode] = useState("alert");
+  const [copilotTargetId, setCopilotTargetId] = useState("");
+  const [copilotState, setCopilotState] = useState("idle");
+  const [copilotResult, setCopilotResult] = useState(null);
+  const [copilotError, setCopilotError] = useState("");
   const [liveNotice, setLiveNotice] = useState("");
 
   const realtimeStatus = useRealtimeAlerts({ onMessage: handleRealtimeMessage });
@@ -1105,6 +1249,46 @@ export default function Dashboard() {
     }
   }
 
+  function handleAnalyzeGraphNode(node) {
+    if (node.type === "alert") {
+      setCopilotMode("alert");
+      setCopilotTargetId(String(node.metadata?.id ?? node.id.replace("alert:", "")));
+    }
+    if (node.type === "incident") {
+      setCopilotMode("incident");
+      setCopilotTargetId(String(node.metadata?.id ?? node.id.replace("incident:", "")));
+    }
+  }
+
+  async function handleRunCopilotAnalysis() {
+    try {
+      setCopilotState("loading");
+      setCopilotError("");
+      let result;
+
+      if (copilotMode === "alert") {
+        if (!copilotTargetId) throw new Error("Select an alert to analyze.");
+        result = await apiGet(`/api/copilot/alert/${copilotTargetId}`);
+      } else if (copilotMode === "incident") {
+        if (!copilotTargetId) throw new Error("Select an incident to analyze.");
+        result = await apiGet(`/api/copilot/incident/${copilotTargetId}`);
+      } else {
+        const selectedChain =
+          (correlationResult?.chains ?? []).find((chain) => chain.source_ip === copilotTargetId) ??
+          correlationResult?.chains?.[0];
+        if (!selectedChain) throw new Error("Run correlation before analyzing an attack chain.");
+        result = await apiPost("/api/copilot/attack-chain-summary", selectedChain);
+      }
+
+      setCopilotResult(result);
+      await refreshSlices(["activity"]);
+    } catch (requestError) {
+      setCopilotError(requestError.message);
+    } finally {
+      setCopilotState("idle");
+    }
+  }
+
   return (
     <main className="app-shell">
       <section className="page-header">
@@ -1181,7 +1365,29 @@ export default function Dashboard() {
           onFilterChange={handleGraphFilterChange}
           onRefresh={loadGraph}
           onNodeSelect={setSelectedGraphNode}
+          onAnalyzeNode={handleAnalyzeGraphNode}
           onZoomChange={setGraphZoom}
+        />
+      )}
+
+      {status === "ready" && (
+        <CopilotPanel
+          alerts={data.alerts}
+          incidents={data.incidents}
+          chains={correlationResult?.chains ?? []}
+          selectedNode={selectedGraphNode}
+          copilotMode={copilotMode}
+          copilotTargetId={copilotTargetId}
+          copilotState={copilotState}
+          copilotResult={copilotResult}
+          copilotError={copilotError}
+          onModeChange={(mode) => {
+            setCopilotMode(mode);
+            setCopilotTargetId("");
+            setCopilotError("");
+          }}
+          onTargetChange={setCopilotTargetId}
+          onAnalyze={handleRunCopilotAnalysis}
         />
       )}
 
