@@ -161,6 +161,51 @@ const sampleIngestionLogs = {
   ],
 };
 
+const sampleWindowsSysmonEvents = {
+  events: [
+    {
+      ProviderName: "Microsoft-Windows-Sysmon",
+      EventID: 1,
+      UtcTime: "2026-05-08T11:00:00Z",
+      Computer: "finance-laptop-07",
+      Image: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      CommandLine: "powershell.exe -NoP -EncodedCommand SQBFAFgA",
+      User: "CORP\\jane.finance",
+      Message: "Process Create: PowerShell encoded command observed.",
+    },
+    {
+      ProviderName: "Microsoft-Windows-Security-Auditing",
+      EventID: 4625,
+      TimeCreated: "2026-05-08T11:03:00Z",
+      Computer: "prod-web-01",
+      IpAddress: "203.0.113.45",
+      TargetUserName: "svc_backup",
+      TargetDomainName: "CORP",
+      Message: "An account failed to log on.",
+    },
+    {
+      ProviderName: "Microsoft-Windows-Sysmon",
+      EventID: 10,
+      UtcTime: "2026-05-08T11:10:00Z",
+      Computer: "finance-laptop-07",
+      SourceImage: "C:\\Tools\\procdump.exe",
+      TargetImage: "C:\\Windows\\System32\\lsass.exe",
+      CommandLine: "procdump.exe -ma lsass.exe C:\\Temp\\lsass.dmp",
+      User: "CORP\\jane.finance",
+      Message: "Process accessed LSASS memory.",
+    },
+    {
+      ProviderName: "Microsoft-Windows-Sysmon",
+      EventID: 22,
+      UtcTime: "2026-05-08T11:12:00Z",
+      Computer: "finance-laptop-07",
+      SourceIp: "10.0.22.47",
+      QueryName: "a92js8d7f6s5d4f3g2h1.example",
+      Message: "DNS query for unusual generated-looking domain.",
+    },
+  ],
+};
+
 function cleanOptionalNumber(value) {
   return value === "" ? null : Number(value);
 }
@@ -585,14 +630,17 @@ function DetectionPanel({ detectionState, detectionResult, detectionError, onRun
 }
 
 function LogIngestionPanel({
+  mode,
   value,
   autoDetect,
   state,
   result,
   error,
+  onModeChange,
   onChange,
   onAutoDetectChange,
   onLoadSample,
+  onLoadWindowsSample,
   onIngest,
   canOperate,
 }) {
@@ -603,13 +651,28 @@ function LogIngestionPanel({
           <h2>Log Ingestion Pipeline</h2>
           <p>Paste normalized JSON telemetry from Sysmon, EDR, DNS, firewall, or collector pipelines.</p>
         </div>
-        <button type="button" onClick={onLoadSample}>
-          Load Sample JSON
-        </button>
+        <div className="ingestion-header-actions">
+          <button type="button" onClick={onLoadSample}>
+            Load Normalized Sample
+          </button>
+          <button type="button" onClick={onLoadWindowsSample}>
+            Load Windows/Sysmon Sample
+          </button>
+        </div>
+      </div>
+
+      <div className="ingestion-mode-row">
+        <label>
+          <span>Ingestion mode</span>
+          <select value={mode} onChange={(event) => onModeChange(event.target.value)}>
+            <option value="normalized">Normalized JSON</option>
+            <option value="windows">Windows/Sysmon JSON</option>
+          </select>
+        </label>
       </div>
 
       <label className="ingestion-textarea">
-        <span>JSON logs</span>
+        <span>{mode === "windows" ? "Windows/Sysmon JSON events" : "Normalized JSON logs"}</span>
         <textarea
           value={value}
           rows={10}
@@ -639,6 +702,7 @@ function LogIngestionPanel({
       {result && (
         <div className="detection-result">
           <span>Received: {result.received}</span>
+          {mode === "windows" && <span>Parsed: {result.received - (result.validation_errors?.length ?? 0)}</span>}
           <span>Ingested: {result.ingested}</span>
           <span>Skipped: {result.skipped}</span>
           <span>Assets created: {result.assets_created}</span>
@@ -1597,6 +1661,7 @@ export default function Dashboard() {
   const [detectionResult, setDetectionResult] = useState(null);
   const [detectionError, setDetectionError] = useState("");
   const [ingestionText, setIngestionText] = useState(JSON.stringify(sampleIngestionLogs, null, 2));
+  const [ingestionMode, setIngestionMode] = useState("normalized");
   const [ingestionAutoDetect, setIngestionAutoDetect] = useState(true);
   const [ingestionState, setIngestionState] = useState("idle");
   const [ingestionResult, setIngestionResult] = useState(null);
@@ -1827,7 +1892,11 @@ export default function Dashboard() {
       await loadGraph();
     }
 
-    if (["event_ingested", "bulk_ingestion_completed"].includes(message.type)) {
+    if (
+      ["event_ingested", "bulk_ingestion_completed", "windows_event_ingested", "bulk_windows_ingestion_completed"].includes(
+        message.type,
+      )
+    ) {
       await refreshSlices(["events", "assets", "alerts", "activity"]);
       await loadGraph();
     }
@@ -2016,10 +2085,11 @@ export default function Dashboard() {
         throw new Error("JSON must be an array of logs or an object with a logs array.");
       }
 
-      const result = await apiPost(
-        `/api/ingestion/events/bulk?auto_detect=${ingestionAutoDetect ? "true" : "false"}`,
-        payload,
-      );
+      const path =
+        ingestionMode === "windows"
+          ? `/api/ingestion/windows-events/bulk?auto_detect=${ingestionAutoDetect ? "true" : "false"}`
+          : `/api/ingestion/events/bulk?auto_detect=${ingestionAutoDetect ? "true" : "false"}`;
+      const result = await apiPost(path, payload);
       setIngestionResult(result);
       await refreshSlices(["events", "assets", "alerts", "activity"]);
       await loadGraph();
@@ -2438,15 +2508,27 @@ export default function Dashboard() {
 
       {status === "ready" && (
         <LogIngestionPanel
+          mode={ingestionMode}
           value={ingestionText}
           autoDetect={ingestionAutoDetect}
           state={ingestionState}
           result={ingestionResult}
           error={ingestionError}
+          onModeChange={(mode) => {
+            setIngestionMode(mode);
+            setIngestionText(JSON.stringify(mode === "windows" ? sampleWindowsSysmonEvents : sampleIngestionLogs, null, 2));
+            setIngestionError("");
+          }}
           onChange={setIngestionText}
           onAutoDetectChange={setIngestionAutoDetect}
           onLoadSample={() => {
+            setIngestionMode("normalized");
             setIngestionText(JSON.stringify(sampleIngestionLogs, null, 2));
+            setIngestionError("");
+          }}
+          onLoadWindowsSample={() => {
+            setIngestionMode("windows");
+            setIngestionText(JSON.stringify(sampleWindowsSysmonEvents, null, 2));
             setIngestionError("");
           }}
           onIngest={handleIngestLogs}

@@ -20,6 +20,8 @@ def ingest_logs(
     *,
     actor_username: str | None = None,
     actor_role: str | None = None,
+    activity_action: str | None = None,
+    activity_message: str | None = None,
 ) -> dict[str, Any]:
     """Store normalized logs as security events and create referenced assets."""
     summaries: list[IngestedEventSummary] = []
@@ -63,10 +65,10 @@ def ingest_logs(
 
     activity = add_activity(
         db,
-        action="bulk_log_ingestion_completed" if len(logs) > 1 else "log_ingested",
+        action=activity_action or ("bulk_log_ingestion_completed" if len(logs) > 1 else "log_ingested"),
         entity_type="security_event",
         entity_id=summaries[-1].event_id if summaries else None,
-        message=f"Ingested {len(summaries)} of {len(logs)} submitted log events.",
+        message=activity_message or f"Ingested {len(summaries)} of {len(logs)} submitted log events.",
         severity="info" if not validation_errors else "warning",
         actor_username=actor_username,
         actor_role=actor_role,

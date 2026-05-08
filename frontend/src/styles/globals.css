@@ -228,6 +228,35 @@ body {
   align-items: flex-start;
 }
 
+.ingestion-header-actions,
+.ingestion-mode-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ingestion-mode-row label {
+  display: grid;
+  gap: 7px;
+  min-width: 220px;
+}
+
+.ingestion-mode-row span {
+  color: #93a4b8;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ingestion-mode-row select {
+  border: 1px solid #2e425f;
+  border-radius: 6px;
+  background: #0b1220;
+  color: #e5edf6;
+  font: inherit;
+  min-width: 0;
+  padding: 9px 10px;
+}
+
 .ingestion-textarea {
   display: grid;
   gap: 8px;

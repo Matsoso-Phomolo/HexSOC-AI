@@ -42,8 +42,19 @@ async def _ingest(
     auto_detect: bool,
     db: Session,
     user: models.User,
+    event_type: str = "event_ingested",
+    bulk_event_type: str = "bulk_ingestion_completed",
+    activity_action: str | None = None,
+    activity_message: str | None = None,
 ) -> BulkIngestResponse:
-    result = ingest_logs(db, logs, actor_username=user.username, actor_role=user.role)
+    result = ingest_logs(
+        db,
+        logs,
+        actor_username=user.username,
+        actor_role=user.role,
+        activity_action=activity_action,
+        activity_message=activity_message,
+    )
     activity = result.pop("_activity")
 
     detection_summary: dict[str, int] | None = None
@@ -63,7 +74,7 @@ async def _ingest(
 
     await websocket_manager.broadcast_activity(
         {
-            "type": "event_ingested" if len(logs) == 1 else "bulk_ingestion_completed",
+            "type": event_type if len(logs) == 1 else bulk_event_type,
             "received": result["received"],
             "ingested": result["ingested"],
             "assets_created": result["assets_created"],

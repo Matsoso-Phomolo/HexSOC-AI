@@ -20,6 +20,7 @@ from app.api.routes import (
     threat_intel,
     users,
     websocket,
+    windows_events,
 )
 from app.core.config import settings
 from app.core.logging import configure_logging
@@ -72,5 +73,6 @@ app.include_router(correlation.router, prefix=f"{settings.api_prefix}/correlatio
 app.include_router(threat_intel.router, prefix=f"{settings.api_prefix}/threat-intel", tags=["threat-intel"])
 app.include_router(graph.router, prefix=f"{settings.api_prefix}/graph", tags=["graph"])
 app.include_router(ingestion.router, prefix=f"{settings.api_prefix}/ingestion", tags=["ingestion"])
+app.include_router(windows_events.router, prefix=f"{settings.api_prefix}/ingestion", tags=["ingestion"])
 app.include_router(websocket.router, prefix=f"{settings.api_prefix}/ws", tags=["websocket"])
 app.include_router(realtime.router, tags=["realtime"])
