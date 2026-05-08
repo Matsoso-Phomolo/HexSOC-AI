@@ -27,3 +27,38 @@ Start with:
 ## Status
 
 This is a production-oriented foundation scaffold. It intentionally contains starter files only, leaving room for implementation once service contracts and product workflows are defined.
+
+## Render Backend Deployment
+
+Deploy the FastAPI backend as a Render Web Service connected to a Render PostgreSQL database. Keep secrets in Render environment variables; do not commit production credentials.
+
+Render settings:
+
+- Root Directory: `backend`
+- Build Command: `pip install -r requirements.txt`
+- Start Command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- Runtime: Python 3
+
+Required environment variables:
+
+- `APP_ENV=production`
+- `APP_NAME=HexSOC AI`
+- `DATABASE_URL=<Render PostgreSQL internal database URL>`
+- `FRONTEND_ORIGIN=https://hexsoc-ai.vercel.app`
+- `CORS_ORIGINS=https://hexsoc-ai.vercel.app`
+- `JWT_SECRET_KEY=<secure random production secret>`
+- `JWT_ALGORITHM=HS256`
+
+Optional environment variables:
+
+- `API_PREFIX=/api`
+- `KAFKA_BOOTSTRAP_SERVERS=<future production Kafka bootstrap servers>`
+- `SHODAN_API_KEY=<future integration key>`
+- `OPENAI_API_KEY=<future AI integration key>`
+
+Production notes:
+
+- The local PostgreSQL database name remains `hexsoc`.
+- Render PostgreSQL will provide its own production database through `DATABASE_URL`.
+- The backend reads `DATABASE_URL`, `FRONTEND_ORIGIN`, and `CORS_ORIGINS` from the environment at startup.
+- The Vercel frontend must use `VITE_API_BASE_URL=<your Render backend URL>`.

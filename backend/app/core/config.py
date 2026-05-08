@@ -13,7 +13,8 @@ class Settings(BaseModel):
     app_name: str = "HexSOC AI"
     app_env: str = "development"
     api_prefix: str = "/api"
-    cors_origins: list[str] = ["http://localhost:5173"]
+    frontend_origin: str = "http://localhost:5173"
+    cors_origins: list[str] = ["http://localhost:5173", "https://hexsoc-ai.vercel.app"]
     database_url: str = "postgresql+psycopg2://hexsoc:change-me@localhost:5432/hexsoc"
     kafka_bootstrap_servers: str = "localhost:9092"
     jwt_secret_key: str = "change-me"
@@ -26,11 +27,20 @@ def _split_csv(value: str) -> list[str]:
 
 def load_settings() -> Settings:
     """Build settings without introducing framework-specific configuration logic."""
+    frontend_origin = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
+    cors_origins = _split_csv(
+        os.getenv("CORS_ORIGINS", f"{frontend_origin},https://hexsoc-ai.vercel.app"),
+    )
+
+    if frontend_origin not in cors_origins:
+        cors_origins.append(frontend_origin)
+
     return Settings(
         app_name=os.getenv("APP_NAME", "HexSOC AI"),
         app_env=os.getenv("APP_ENV", "development"),
         api_prefix=os.getenv("API_PREFIX", "/api"),
-        cors_origins=_split_csv(os.getenv("CORS_ORIGINS", "http://localhost:5173")),
+        frontend_origin=frontend_origin,
+        cors_origins=cors_origins,
         database_url=os.getenv(
             "DATABASE_URL",
             "postgresql+psycopg2://hexsoc:change-me@localhost:5432/hexsoc",
