@@ -440,6 +440,64 @@ function ThreatIntelPanel({ threatState, threatResult, threatError, onRun }) {
   );
 }
 
+function CorrelationPanel({ correlationState, correlationResult, correlationError, onRun }) {
+  const chains = correlationResult?.chains ?? [];
+
+  return (
+    <section className="correlation-panel">
+      <div className="section-heading">
+        <div>
+          <h2>Attack Chains</h2>
+          <p>Correlate events, alerts, assets, and incidents into source-IP attack paths.</p>
+        </div>
+        <button type="button" disabled={correlationState === "running"} onClick={onRun}>
+          {correlationState === "running" ? "Correlating..." : "Run Correlation Engine"}
+        </button>
+      </div>
+
+      {correlationResult && (
+        <div className="detection-result">
+          <span>Chains: {correlationResult.chains_found}</span>
+          <span>Source IPs: {correlationResult.source_ips_checked}</span>
+        </div>
+      )}
+
+      {correlationError && <span className="form-error">{correlationError}</span>}
+
+      {correlationResult && chains.length === 0 && (
+        <p className="empty-state">No attack-chain candidates found yet.</p>
+      )}
+
+      {chains.length > 0 && (
+        <ul className="data-list chain-list">
+          {chains.slice(0, 6).map((chain) => (
+            <li key={`chain-${chain.source_ip}`} className="chain-item">
+              <div className="record-body">
+                <div className="record-title-row">
+                  <strong>{chain.source_ip}</strong>
+                  <span className={`threat-badge threat-${threatLevel(chain.risk_score)}`}>
+                    Risk {chain.risk_score}
+                  </span>
+                </div>
+                <p>{chain.recommended_action}</p>
+                <div className="activity-meta">
+                  <span>{chain.attack_stage}</span>
+                  <span>{chain.related_events.length} events</span>
+                  <span>{chain.related_alerts.length} alerts</span>
+                  <span>{chain.affected_assets.length || 0} assets</span>
+                </div>
+                {chain.affected_assets.length > 0 && (
+                  <p className="chain-assets">{chain.affected_assets.join(" | ")}</p>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function AlertSection({ alerts, onStatusChange, updatingKey }) {
   return (
     <section className="data-section workflow-section">
@@ -581,6 +639,9 @@ export default function Dashboard() {
   const [threatState, setThreatState] = useState("idle");
   const [threatResult, setThreatResult] = useState(null);
   const [threatError, setThreatError] = useState("");
+  const [correlationState, setCorrelationState] = useState("idle");
+  const [correlationResult, setCorrelationResult] = useState(null);
+  const [correlationError, setCorrelationError] = useState("");
   const [liveNotice, setLiveNotice] = useState("");
 
   const realtimeStatus = useRealtimeAlerts({ onMessage: handleRealtimeMessage });
@@ -643,6 +704,14 @@ export default function Dashboard() {
 
   async function handleRealtimeMessage(message) {
     if (message.type === "connected") return;
+
+    if (message.type === "correlation_completed") {
+      setCorrelationResult({
+        chains: message.chains,
+        chains_found: message.chains_found,
+        source_ips_checked: message.source_ips_checked,
+      });
+    }
 
     setLiveNotice("Live update received");
     await refreshSlices(["alerts", "incidents", "activity"]);
@@ -792,6 +861,20 @@ export default function Dashboard() {
     }
   }
 
+  async function handleRunCorrelationEngine() {
+    try {
+      setCorrelationState("running");
+      setCorrelationError("");
+      const result = await apiPost("/api/correlation/run", {});
+      setCorrelationResult(result);
+      await refreshSlices(["activity"]);
+    } catch (requestError) {
+      setCorrelationError(requestError.message);
+    } finally {
+      setCorrelationState("idle");
+    }
+  }
+
   return (
     <main className="app-shell">
       <section className="page-header">
@@ -845,6 +928,15 @@ export default function Dashboard() {
           threatResult={threatResult}
           threatError={threatError}
           onRun={handleRunThreatIntel}
+        />
+      )}
+
+      {status === "ready" && (
+        <CorrelationPanel
+          correlationState={correlationState}
+          correlationResult={correlationResult}
+          correlationError={correlationError}
+          onRun={handleRunCorrelationEngine}
         />
       )}
 

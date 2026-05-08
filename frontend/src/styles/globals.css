@@ -465,6 +465,60 @@ body {
   grid-column: 1 / -1;
 }
 
+.correlation-panel {
+  border: 1px solid #203047;
+  border-radius: 8px;
+  background: #101c2f;
+  margin-top: 16px;
+  padding: 18px;
+}
+
+.correlation-panel .section-heading {
+  align-items: flex-start;
+}
+
+.correlation-panel h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.correlation-panel p {
+  color: #93a4b8;
+  margin: 6px 0 0;
+}
+
+.correlation-panel button {
+  border: 1px solid #38bdf8;
+  border-radius: 6px;
+  background: #1e3a5f;
+  color: #e5edf6;
+  cursor: pointer;
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 13px;
+  padding: 9px 12px;
+}
+
+.correlation-panel button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.chain-list {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.chain-item {
+  border: 1px solid #203047;
+  border-radius: 8px;
+  background: #0d1728;
+  padding: 12px;
+}
+
+.chain-assets {
+  color: #cbd5e1;
+}
+
 .activity-item {
   align-items: stretch;
 }
@@ -500,8 +554,13 @@ body {
   }
 
   .detection-panel,
-  .threat-panel {
+  .threat-panel,
+  .correlation-panel .section-heading {
     grid-template-columns: 1fr;
+  }
+
+  .correlation-panel .section-heading {
+    flex-direction: column;
   }
 
   .data-list li,
