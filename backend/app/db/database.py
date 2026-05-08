@@ -129,6 +129,31 @@ def sync_phase2_schema() -> None:
         "ALTER TABLE users ALTER COLUMN role SET DEFAULT 'analyst'",
         "ALTER TABLE users ALTER COLUMN is_active SET DEFAULT true",
         "ALTER TABLE users ALTER COLUMN created_at SET DEFAULT now()",
+        """
+        DO $$
+        DECLARE legacy_column record;
+        BEGIN
+            FOR legacy_column IN
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'users'
+                  AND is_nullable = 'NO'
+                  AND column_name NOT IN (
+                    'id',
+                    'full_name',
+                    'email',
+                    'username',
+                    'hashed_password',
+                    'role',
+                    'is_active',
+                    'created_at'
+                  )
+            LOOP
+                EXECUTE format('ALTER TABLE users ALTER COLUMN %I DROP NOT NULL', legacy_column.column_name);
+            END LOOP;
+        END $$;
+        """,
         "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email ON users (email)",
         "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_username ON users (username)",
         """
