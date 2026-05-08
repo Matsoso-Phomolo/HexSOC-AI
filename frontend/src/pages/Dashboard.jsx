@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { apiGet, apiPatch, apiPost, fetchDashboardData } from "../api/client.js";
+import { API_BASE_URL, apiGet, apiPatch, apiPost, fetchDashboardData } from "../api/client.js";
 import { useRealtimeAlerts } from "../hooks/useRealtimeAlerts.js";
 
 const sections = [
@@ -798,6 +798,8 @@ function CaseManagementPanel({
   onAddNote,
   onAddEvidence,
   onGenerateReport,
+  onDownloadJson,
+  onOpenHtml,
   onGenerateCopilot,
 }) {
   return (
@@ -979,11 +981,49 @@ function CaseManagementPanel({
 
               {activeTab === "report" && (
                 <div className="case-card">
-                  <button type="button" disabled={state === "saving"} onClick={onGenerateReport}>
-                    Generate JSON SOC Report
-                  </button>
+                  <div className="report-actions">
+                    <button type="button" disabled={state === "saving"} onClick={onGenerateReport}>
+                      Generate Report
+                    </button>
+                    <button type="button" disabled={state === "saving" || !caseDetails} onClick={onDownloadJson}>
+                      Download JSON
+                    </button>
+                    <button type="button" disabled={!caseDetails} onClick={onOpenHtml}>
+                      Open Printable HTML
+                    </button>
+                  </div>
                   {report ? (
-                    <pre className="report-preview">{JSON.stringify(report, null, 2)}</pre>
+                    <div className="report-summary-grid">
+                      <div className="report-summary-card">
+                        <span>Summary</span>
+                        <strong>{report.incident_summary?.title}</strong>
+                        <p>{report.status} | {report.severity} | {report.priority || "unset priority"}</p>
+                      </div>
+                      <div className="report-summary-card">
+                        <span>Analyst Notes</span>
+                        <strong>{report.analyst_notes?.length ?? 0}</strong>
+                      </div>
+                      <div className="report-summary-card">
+                        <span>Evidence</span>
+                        <strong>{report.evidence?.length ?? 0}</strong>
+                      </div>
+                      <div className="report-summary-card">
+                        <span>Generated</span>
+                        <strong>{formatDateTime(report.generated_at)}</strong>
+                      </div>
+                      <div className="report-summary-card report-wide-card">
+                        <span>Recommended Actions</span>
+                        <ul className="recommendation-list">
+                          {(report.recommended_actions ?? []).map((action) => (
+                            <li key={action}>{action}</li>
+                          ))}
+                        </ul>
+                      </div>
+                      <details className="raw-report-details">
+                        <summary>Raw JSON</summary>
+                        <pre className="report-preview">{JSON.stringify(report, null, 2)}</pre>
+                      </details>
+                    </div>
                   ) : (
                     <p className="empty-state">Generate a report to preview structured case output.</p>
                   )}
@@ -1322,7 +1362,11 @@ export default function Dashboard() {
       await loadGraph();
     }
 
-    if (["case_updated", "case_note_added", "case_evidence_added", "case_report_generated"].includes(message.type)) {
+    if (
+      ["case_updated", "case_note_added", "case_evidence_added", "case_report_generated", "case_report_exported"].includes(
+        message.type,
+      )
+    ) {
       await refreshSlices(["incidents", "activity"]);
       if (selectedCaseId && Number(selectedCaseId) === message.incident_id) {
         await loadCase(selectedCaseId);
@@ -1674,6 +1718,37 @@ export default function Dashboard() {
     }
   }
 
+  async function handleDownloadCaseJson() {
+    if (!selectedCaseId) return;
+    try {
+      setCaseState("saving");
+      setCaseError("");
+      const response = await fetch(`${API_BASE_URL}/api/cases/${selectedCaseId}/report/json`);
+      if (!response.ok) {
+        throw new Error(`Report download failed: ${response.status}`);
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `hexsoc-case-${selectedCaseId}-report.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      await refreshSlices(["activity"]);
+      setCaseState("ready");
+    } catch (requestError) {
+      setCaseError(requestError.message);
+      setCaseState("error");
+    }
+  }
+
+  function handleOpenCaseHtml() {
+    if (!selectedCaseId) return;
+    window.open(`${API_BASE_URL}/api/cases/${selectedCaseId}/report/html`, "_blank", "noopener,noreferrer");
+  }
+
   async function handleGenerateCaseCopilot() {
     if (!selectedCaseId) return;
     try {
@@ -1819,6 +1894,8 @@ export default function Dashboard() {
           onAddNote={handleAddCaseNote}
           onAddEvidence={handleAddCaseEvidence}
           onGenerateReport={handleGenerateCaseReport}
+          onDownloadJson={handleDownloadCaseJson}
+          onOpenHtml={handleOpenCaseHtml}
           onGenerateCopilot={handleGenerateCaseCopilot}
         />
       )}

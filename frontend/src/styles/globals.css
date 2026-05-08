@@ -904,7 +904,8 @@ body {
   padding: 9px 10px;
 }
 
-.case-card > button {
+.case-card > button,
+.report-actions button {
   border: 1px solid #38bdf8;
   border-radius: 6px;
   background: #1e3a5f;
@@ -916,7 +917,8 @@ body {
   padding: 9px 12px;
 }
 
-.case-card button:disabled {
+.case-card button:disabled,
+.report-actions button:disabled {
   cursor: wait;
   opacity: 0.6;
 }
@@ -955,6 +957,62 @@ body {
   overflow: auto;
   padding: 14px;
   white-space: pre-wrap;
+}
+
+.report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.report-actions button {
+  margin-top: 0;
+}
+
+.report-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.report-summary-card {
+  border: 1px solid #203047;
+  border-radius: 8px;
+  background: #101c2f;
+  padding: 12px;
+}
+
+.report-summary-card span {
+  color: #93a4b8;
+  display: block;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.report-summary-card strong {
+  color: #e5edf6;
+  display: block;
+  margin-top: 6px;
+}
+
+.report-wide-card,
+.raw-report-details {
+  grid-column: 1 / -1;
+}
+
+.raw-report-details {
+  border: 1px solid #203047;
+  border-radius: 8px;
+  background: #101c2f;
+  color: #cbd5e1;
+  padding: 12px;
+}
+
+.raw-report-details summary {
+  cursor: pointer;
+  font-weight: 800;
 }
 
 .correlation-panel .section-heading {
