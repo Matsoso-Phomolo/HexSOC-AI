@@ -19,6 +19,7 @@ class Settings(BaseModel):
     kafka_bootstrap_servers: str = "localhost:9092"
     jwt_secret_key: str = "change-me"
     jwt_algorithm: str = "HS256"
+    demo_seed_token: str | None = None
 
 
 def _split_csv(value: str) -> list[str]:
@@ -48,6 +49,7 @@ def load_settings() -> Settings:
         kafka_bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"),
         jwt_secret_key=os.getenv("JWT_SECRET_KEY", "change-me"),
         jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
+        demo_seed_token=os.getenv("DEMO_SEED_TOKEN"),
     )
 
 

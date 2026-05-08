@@ -673,7 +673,9 @@ export default function Dashboard() {
       )}
 
       {status === "ready" && totalRecords === 0 && (
-        <div className="state-panel">No SOC records found in PostgreSQL yet.</div>
+        <div className="state-panel">
+          Production database is connected. Create a SOC record or load demo data.
+        </div>
       )}
 
       {status === "ready" && (

@@ -62,3 +62,43 @@ Production notes:
 - Render PostgreSQL will provide its own production database through `DATABASE_URL`.
 - The backend reads `DATABASE_URL`, `FRONTEND_ORIGIN`, and `CORS_ORIGINS` from the environment at startup.
 - The Vercel frontend must use `VITE_API_BASE_URL=<your Render backend URL>`.
+
+## Production Proof
+
+Live deployment:
+
+- Frontend: https://hexsoc-ai.vercel.app
+- Backend: https://hexsoc-ai.onrender.com
+- Swagger: https://hexsoc-ai.onrender.com/docs
+
+Deployment architecture:
+
+```text
+Vercel React Frontend -> Render FastAPI Backend -> Render PostgreSQL
+```
+
+Local development:
+
+```powershell
+cd "C:\Users\windows 10\Desktop\Workshop\hexsoc-ai\backend"
+uvicorn app.main:app --reload --host 127.0.0.1 --port 9000
+```
+
+```powershell
+cd "C:\Users\windows 10\Desktop\Workshop\hexsoc-ai\frontend"
+npm run dev
+```
+
+Seed demo data locally:
+
+```powershell
+cd "C:\Users\windows 10\Desktop\Workshop\hexsoc-ai\backend"
+python scripts\seed_demo_data.py
+```
+
+Demo seeding API:
+
+- Local/dev: `POST /api/demo/seed`
+- Production: requires `DEMO_SEED_TOKEN` in the backend environment and the request header `X-Demo-Seed-Token`
+
+The seeder is idempotent and skips demo records that already exist.
