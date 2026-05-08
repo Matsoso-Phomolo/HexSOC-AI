@@ -63,8 +63,14 @@ def register_user(payload: UserCreate, db: Session = Depends(get_db)) -> models.
         db.refresh(user)
     except IntegrityError as exc:
         db.rollback()
-        logger.info("Duplicate registration rejected for username=%s email=%s", username, email)
-        raise HTTPException(status_code=409, detail="Email or username already exists") from exc
+        if _is_duplicate_user_identity_error(exc):
+            logger.info("Duplicate registration rejected for username=%s email=%s", username, email)
+            raise HTTPException(status_code=409, detail="Email or username already exists") from exc
+        logger.exception("Auth register integrity failure for username=%s email=%s", username, email)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not create user account because the authentication database rejected the record.",
+        ) from exc
     except SQLAlchemyError as exc:
         db.rollback()
         logger.exception("Auth register failed for username=%s email=%s", username, email)
@@ -114,3 +120,11 @@ def _sync_auth_schema_or_503() -> None:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication database schema could not be initialized.",
         ) from exc
+
+
+def _is_duplicate_user_identity_error(exc: IntegrityError) -> bool:
+    detail = str(getattr(exc, "orig", exc)).lower()
+    constraint = getattr(getattr(exc, "orig", None), "diag", None)
+    constraint_name = getattr(constraint, "constraint_name", "") or ""
+    combined = f"{detail} {constraint_name}".lower()
+    return "email" in combined or "username" in combined
