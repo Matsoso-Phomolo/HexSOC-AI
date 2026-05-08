@@ -1,8 +1,9 @@
 """Authentication routes for HexSOC AI."""
 
 import logging
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -83,10 +84,11 @@ def register_user(payload: UserCreate, db: Session = Depends(get_db)) -> models.
 
 
 @router.post("/login", response_model=TokenResponse, summary="Login")
-def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
+def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)) -> TokenResponse:
     """Authenticate a user and return a bearer token."""
+    username = payload.username.strip().lower()
     try:
-        user = get_user_by_login(db, payload.username.strip().lower())
+        user = get_user_by_login(db, username)
     except SQLAlchemyError as exc:
         logger.exception("Auth login lookup failed")
         raise HTTPException(
@@ -95,9 +97,17 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
         ) from exc
 
     if user is None or not verify_password(payload.password, user.hashed_password):
+        _record_login_audit(db, request, user=None, username=username, success=False, reason="invalid_credentials")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     if not user.is_active:
+        _record_login_audit(db, request, user=user, username=user.username, success=False, reason="inactive_account")
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive")
+
+    user.last_login_at = datetime.now(timezone.utc)
+    _record_login_audit(db, request, user=user, username=user.username, success=True, reason="login_success")
+    db.add(user)
+    db.commit()
+    db.refresh(user)
     return TokenResponse(access_token=create_access_token(user), user=user)
 
 
@@ -128,3 +138,28 @@ def _is_duplicate_user_identity_error(exc: IntegrityError) -> bool:
     constraint_name = getattr(constraint, "constraint_name", "") or ""
     combined = f"{detail} {constraint_name}".lower()
     return "email" in combined or "username" in combined
+
+
+def _record_login_audit(
+    db: Session,
+    request: Request,
+    *,
+    user: models.User | None,
+    username: str,
+    success: bool,
+    reason: str,
+) -> None:
+    try:
+        audit = models.LoginAudit(
+            user_id=user.id if user else None,
+            username=username,
+            success=success,
+            reason=reason,
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+        db.add(audit)
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("Login audit write failed for username=%s", username)

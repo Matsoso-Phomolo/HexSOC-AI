@@ -112,6 +112,24 @@ class User(Base):
     hashed_password = Column(String(500), nullable=False)
     role = Column(String(40), nullable=False, default="analyst", index=True)
     is_active = Column(Boolean, nullable=False, default=True)
+    disabled_reason = Column(String(500), nullable=True)
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class LoginAudit(Base):
+    """Authentication audit record for SOC user access monitoring."""
+
+    __tablename__ = "login_audits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    username = Column(String(120), nullable=False, index=True)
+    success = Column(Boolean, nullable=False, default=False, index=True)
+    reason = Column(String(255), nullable=True)
+    ip_address = Column(String(64), nullable=True)
+    user_agent = Column(String(500), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 

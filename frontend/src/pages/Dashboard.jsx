@@ -1091,6 +1091,159 @@ function CaseManagementPanel({
   );
 }
 
+function AdminUserManagementPanel({
+  users,
+  selectedUserId,
+  userDetail,
+  adminForm,
+  adminRole,
+  state,
+  error,
+  currentUser,
+  onSelectUser,
+  onFormChange,
+  onRoleChange,
+  onUpdateUser,
+  onChangeRole,
+  onActivate,
+  onDeactivate,
+  onRefresh,
+}) {
+  const selectedUser = userDetail ?? users.find((user) => String(user.id) === String(selectedUserId));
+
+  return (
+    <section className="admin-panel">
+      <div className="section-heading">
+        <div>
+          <h2>Admin User Management</h2>
+          <p>Manage analyst access, roles, account status, and recent login activity.</p>
+        </div>
+        <button type="button" disabled={state === "loading"} onClick={onRefresh}>
+          {state === "loading" ? "Refreshing..." : "Refresh Users"}
+        </button>
+      </div>
+
+      {error && <span className="form-error">{error}</span>}
+
+      <div className="admin-layout">
+        <div className="admin-user-list">
+          {users.length === 0 ? (
+            <p className="empty-state">No users found.</p>
+          ) : (
+            users.map((user) => (
+              <button
+                key={user.id}
+                type="button"
+                className={String(selectedUserId) === String(user.id) ? "active-user" : ""}
+                onClick={() => onSelectUser(String(user.id))}
+              >
+                <strong>{user.full_name}</strong>
+                <span>{user.username}</span>
+                <div className="admin-badge-row">
+                  <span className={`role-pill role-${user.role}`}>{user.role}</span>
+                  <span className={`account-pill ${user.is_active ? "account-active" : "account-inactive"}`}>
+                    {user.is_active ? "active" : "inactive"}
+                  </span>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+
+        <div className="admin-detail-card">
+          {!selectedUser ? (
+            <p className="empty-state">Select a SOC user to manage.</p>
+          ) : (
+            <>
+              <div className="record-title-row">
+                <div>
+                  <h3>{selectedUser.full_name}</h3>
+                  <p>{selectedUser.email}</p>
+                </div>
+                <div className="admin-badge-row">
+                  <span className={`role-pill role-${selectedUser.role}`}>{selectedUser.role}</span>
+                  <span className={`account-pill ${selectedUser.is_active ? "account-active" : "account-inactive"}`}>
+                    {selectedUser.is_active ? "active" : "inactive"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="admin-meta-grid">
+                <div>
+                  <span>Username</span>
+                  <strong>{selectedUser.username}</strong>
+                </div>
+                <div>
+                  <span>Last login</span>
+                  <strong>{formatDateTime(selectedUser.last_login_at)}</strong>
+                </div>
+                <div>
+                  <span>Updated</span>
+                  <strong>{formatDateTime(selectedUser.updated_at)}</strong>
+                </div>
+                <div>
+                  <span>Disabled reason</span>
+                  <strong>{selectedUser.disabled_reason ?? "n/a"}</strong>
+                </div>
+              </div>
+
+              <div className="case-form-grid">
+                <Field label="Full name" name="full_name" value={adminForm.full_name} onChange={onFormChange} />
+                <Field label="Email" name="email" value={adminForm.email} onChange={onFormChange} />
+                <label>
+                  <span>Role</span>
+                  <select value={adminRole} onChange={(event) => onRoleChange(event.target.value)}>
+                    <option value="admin">admin</option>
+                    <option value="analyst">analyst</option>
+                    <option value="viewer">viewer</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="action-row">
+                <button type="button" disabled={state === "saving"} onClick={onUpdateUser}>
+                  Update Profile
+                </button>
+                <button type="button" disabled={state === "saving"} onClick={onChangeRole}>
+                  Change Role
+                </button>
+                {selectedUser.is_active ? (
+                  <button
+                    type="button"
+                    disabled={state === "saving" || selectedUser.id === currentUser.id}
+                    onClick={onDeactivate}
+                  >
+                    Deactivate
+                  </button>
+                ) : (
+                  <button type="button" disabled={state === "saving"} onClick={onActivate}>
+                    Activate
+                  </button>
+                )}
+              </div>
+
+              <h3 className="admin-subheading">Login Audit Preview</h3>
+              {userDetail?.login_audits?.length ? (
+                <ul className="case-feed">
+                  {userDetail.login_audits.map((audit) => (
+                    <li key={`audit-${audit.id}`}>
+                      <strong>{audit.success ? "Successful login" : "Failed login"}</strong>
+                      <p>{audit.reason ?? "No reason"} | {audit.ip_address ?? "unknown IP"}</p>
+                      <span>{formatDateTime(audit.created_at)}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="empty-state">No login audit records yet.</p>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function CorrelationPanel({ correlationState, correlationResult, correlationError, onRun, canOperate }) {
   const chains = correlationResult?.chains ?? [];
 
@@ -1339,10 +1492,18 @@ export default function Dashboard() {
     source: "",
     reference_id: "",
   });
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [selectedAdminUserId, setSelectedAdminUserId] = useState("");
+  const [adminUserDetail, setAdminUserDetail] = useState(null);
+  const [adminState, setAdminState] = useState("idle");
+  const [adminError, setAdminError] = useState("");
+  const [adminForm, setAdminForm] = useState({ full_name: "", email: "" });
+  const [adminRole, setAdminRole] = useState("analyst");
   const [liveNotice, setLiveNotice] = useState("");
 
   const realtimeStatus = useRealtimeAlerts({ onMessage: handleRealtimeMessage });
   const canOperate = currentUser?.role === "admin" || currentUser?.role === "analyst";
+  const isAdmin = currentUser?.role === "admin";
 
   useEffect(() => {
     async function loadSession() {
@@ -1411,6 +1572,22 @@ export default function Dashboard() {
     }
   }, [selectedCaseId]);
 
+  useEffect(() => {
+    if (isAdmin) {
+      loadAdminUsers();
+    } else {
+      setAdminUsers([]);
+      setSelectedAdminUserId("");
+      setAdminUserDetail(null);
+    }
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (isAdmin && selectedAdminUserId) {
+      loadAdminUserDetail(selectedAdminUserId);
+    }
+  }, [isAdmin, selectedAdminUserId]);
+
   const totalRecords = useMemo(
     () => Object.values(data).reduce((total, items) => total + items.length, 0),
     [data],
@@ -1440,6 +1617,51 @@ export default function Dashboard() {
     );
   }
 
+  async function loadAdminUsers() {
+    if (!isAdmin) return;
+    try {
+      setAdminState("loading");
+      setAdminError("");
+      const users = await apiGet("/api/users/");
+      setAdminUsers(users);
+      if (!selectedAdminUserId && users.length > 0) {
+        setSelectedAdminUserId(String(users[0].id));
+      }
+      setAdminState("ready");
+    } catch (requestError) {
+      setAdminError(requestError.message);
+      setAdminState("error");
+    }
+  }
+
+  async function loadAdminUserDetail(userId) {
+    if (!isAdmin || !userId) return;
+    try {
+      setAdminState("loading");
+      setAdminError("");
+      const detail = await apiGet(`/api/users/${userId}`);
+      setAdminUserDetail(detail);
+      setAdminForm({ full_name: detail.full_name ?? "", email: detail.email ?? "" });
+      setAdminRole(detail.role ?? "analyst");
+      setAdminState("ready");
+    } catch (requestError) {
+      setAdminError(requestError.message);
+      setAdminState("error");
+    }
+  }
+
+  async function refreshAdminUsers(userId = selectedAdminUserId) {
+    if (!isAdmin) return;
+    const users = await apiGet("/api/users/");
+    setAdminUsers(users);
+    if (userId) {
+      const detail = await apiGet(`/api/users/${userId}`);
+      setAdminUserDetail(detail);
+      setAdminForm({ full_name: detail.full_name ?? "", email: detail.email ?? "" });
+      setAdminRole(detail.role ?? "analyst");
+    }
+  }
+
   async function handleRealtimeMessage(message) {
     if (message.type === "connected") return;
 
@@ -1464,6 +1686,10 @@ export default function Dashboard() {
       if (selectedCaseId && Number(selectedCaseId) === message.incident_id) {
         await loadCase(selectedCaseId);
       }
+    }
+
+    if (["user_updated", "user_role_changed", "user_deactivated", "user_activated"].includes(message.type)) {
+      await refreshAdminUsers(message.user_id ? String(message.user_id) : selectedAdminUserId);
     }
 
     setLiveNotice("Live update received");
@@ -1862,6 +2088,71 @@ export default function Dashboard() {
     }
   }
 
+  function handleAdminFormChange(name, value) {
+    setAdminForm((currentForm) => ({ ...currentForm, [name]: value }));
+  }
+
+  async function handleAdminUpdateUser() {
+    if (!selectedAdminUserId) return;
+    try {
+      setAdminState("saving");
+      setAdminError("");
+      await apiPatch(`/api/users/${selectedAdminUserId}`, {
+        full_name: adminForm.full_name.trim(),
+        email: adminForm.email.trim(),
+      });
+      await Promise.all([refreshAdminUsers(selectedAdminUserId), refreshSlices(["activity"])]);
+      setAdminState("ready");
+    } catch (requestError) {
+      setAdminError(requestError.message);
+      setAdminState("error");
+    }
+  }
+
+  async function handleAdminChangeRole() {
+    if (!selectedAdminUserId) return;
+    try {
+      setAdminState("saving");
+      setAdminError("");
+      await apiPost(`/api/users/${selectedAdminUserId}/role`, { role: adminRole });
+      await Promise.all([refreshAdminUsers(selectedAdminUserId), refreshSlices(["activity"])]);
+      setAdminState("ready");
+    } catch (requestError) {
+      setAdminError(requestError.message);
+      setAdminState("error");
+    }
+  }
+
+  async function handleAdminActivateUser() {
+    if (!selectedAdminUserId) return;
+    try {
+      setAdminState("saving");
+      setAdminError("");
+      await apiPost(`/api/users/${selectedAdminUserId}/activate`, {});
+      await Promise.all([refreshAdminUsers(selectedAdminUserId), refreshSlices(["activity"])]);
+      setAdminState("ready");
+    } catch (requestError) {
+      setAdminError(requestError.message);
+      setAdminState("error");
+    }
+  }
+
+  async function handleAdminDeactivateUser() {
+    if (!selectedAdminUserId) return;
+    try {
+      setAdminState("saving");
+      setAdminError("");
+      await apiPost(`/api/users/${selectedAdminUserId}/deactivate`, {
+        disabled_reason: "Disabled by admin from HexSOC dashboard",
+      });
+      await Promise.all([refreshAdminUsers(selectedAdminUserId), refreshSlices(["activity"])]);
+      setAdminState("ready");
+    } catch (requestError) {
+      setAdminError(requestError.message);
+      setAdminState("error");
+    }
+  }
+
   function handleAuthFieldChange(name, value) {
     setAuthForm((currentForm) => ({ ...currentForm, [name]: value }));
   }
@@ -2055,6 +2346,30 @@ export default function Dashboard() {
           onOpenHtml={handleOpenCaseHtml}
           onGenerateCopilot={handleGenerateCaseCopilot}
           canOperate={canOperate}
+        />
+      )}
+
+      {status === "ready" && isAdmin && (
+        <AdminUserManagementPanel
+          users={adminUsers}
+          selectedUserId={selectedAdminUserId}
+          userDetail={adminUserDetail}
+          adminForm={adminForm}
+          adminRole={adminRole}
+          state={adminState}
+          error={adminError}
+          currentUser={currentUser}
+          onSelectUser={(userId) => {
+            setSelectedAdminUserId(userId);
+            setAdminUserDetail(null);
+          }}
+          onFormChange={handleAdminFormChange}
+          onRoleChange={setAdminRole}
+          onUpdateUser={handleAdminUpdateUser}
+          onChangeRole={handleAdminChangeRole}
+          onActivate={handleAdminActivateUser}
+          onDeactivate={handleAdminDeactivateUser}
+          onRefresh={loadAdminUsers}
         />
       )}
 
