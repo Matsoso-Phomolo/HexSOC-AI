@@ -15,8 +15,15 @@ router = APIRouter()
 def get_investigation_graph(
     source_ip: str | None = Query(default=None),
     severity: str | None = Query(default=None),
-    limit: int = Query(default=150, ge=25, le=500),
+    limit: int = Query(default=50, ge=1, le=500),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """Return graph-ready SOC relationships for analyst investigation."""
-    return build_investigation_graph(db, source_ip=source_ip, severity=severity, limit=limit)
+    normalized_source_ip = source_ip.strip() if source_ip and source_ip.strip() else None
+    normalized_severity = severity.strip().lower() if severity and severity.strip() else None
+    return build_investigation_graph(
+        db,
+        source_ip=normalized_source_ip,
+        severity=normalized_severity,
+        limit=limit,
+    )

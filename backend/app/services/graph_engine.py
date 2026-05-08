@@ -19,7 +19,7 @@ def build_investigation_graph(
     limit: int = 150,
 ) -> dict[str, Any]:
     """Build source IP, event, alert, incident, asset, and threat intel graph data."""
-    limit = max(25, min(limit, 500))
+    limit = max(1, min(limit, 500))
     events = _query_events(db, source_ip, severity, limit)
     alerts = _query_alerts(db, source_ip, severity, limit)
     assets = db.query(models.Asset).all()

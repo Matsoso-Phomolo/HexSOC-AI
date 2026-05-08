@@ -185,9 +185,16 @@ function ThreatBadges({ item }) {
 
 function buildGraphPath(filters) {
   const params = new URLSearchParams();
-  if (filters.source_ip.trim()) params.set("source_ip", filters.source_ip.trim());
-  if (filters.severity) params.set("severity", filters.severity);
-  if (filters.limit) params.set("limit", filters.limit);
+  const sourceIp = filters.source_ip.trim();
+  const severity = filters.severity.trim();
+  const limit = Number.parseInt(filters.limit, 10);
+
+  if (sourceIp) params.set("source_ip", sourceIp);
+  if (severity) params.set("severity", severity);
+  if (Number.isInteger(limit) && limit >= 1 && limit <= 500) {
+    params.set("limit", String(limit));
+  }
+
   const query = params.toString();
   return `/api/graph/investigation${query ? `?${query}` : ""}`;
 }
@@ -529,7 +536,7 @@ function GraphInvestigationPanel({
           <span>Limit</span>
           <input
             type="number"
-            min="25"
+            min="1"
             max="500"
             value={graphFilters.limit}
             onChange={(event) => onFilterChange("limit", event.target.value)}
