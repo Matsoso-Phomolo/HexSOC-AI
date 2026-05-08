@@ -22,5 +22,6 @@ async def enrich_threat_intel(db: Session = Depends(get_db)) -> dict[str, Any]:
         await websocket_manager.broadcast_activity(
             {"type": "activity_created", "activity": serialize_activity(activity)}
         )
+    await websocket_manager.broadcast_activity({"type": "graph_updated"})
 
     return result

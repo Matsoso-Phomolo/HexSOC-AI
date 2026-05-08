@@ -28,5 +28,6 @@ async def run_correlation_engine(db: Session = Depends(get_db)) -> dict[str, Any
         {"type": "activity_created", "activity": serialize_activity(activity)}
     )
     await websocket_manager.broadcast_activity(payload)
+    await websocket_manager.broadcast_activity({"type": "graph_updated"})
 
     return result

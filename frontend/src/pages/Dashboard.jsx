@@ -70,6 +70,15 @@ const resourcePaths = {
   activity: "/api/activity/recent",
 };
 
+const nodeColors = {
+  source_ip: "#38bdf8",
+  asset: "#a5b4fc",
+  event: "#facc15",
+  alert: "#fb7185",
+  incident: "#f97316",
+  threat_intel: "#c084fc",
+};
+
 function cleanOptionalNumber(value) {
   return value === "" ? null : Number(value);
 }
@@ -172,6 +181,35 @@ function ThreatBadges({ item }) {
       {item.enrichment_status && <span className="threat-badge">{item.enrichment_status}</span>}
     </div>
   );
+}
+
+function buildGraphPath(filters) {
+  const params = new URLSearchParams();
+  if (filters.source_ip.trim()) params.set("source_ip", filters.source_ip.trim());
+  if (filters.severity) params.set("severity", filters.severity);
+  if (filters.limit) params.set("limit", filters.limit);
+  const query = params.toString();
+  return `/api/graph/investigation${query ? `?${query}` : ""}`;
+}
+
+function layoutGraph(nodes) {
+  const centerX = 520;
+  const centerY = 260;
+  const radius = Math.max(150, Math.min(240, nodes.length * 18));
+
+  return nodes.map((node, index) => {
+    if (node.type === "source_ip") {
+      return { ...node, x: centerX, y: centerY };
+    }
+
+    const angle = (Math.PI * 2 * index) / Math.max(nodes.length, 1) - Math.PI / 2;
+    const typeOffset = Object.keys(nodeColors).indexOf(node.type) * 18;
+    return {
+      ...node,
+      x: centerX + Math.cos(angle) * (radius + typeOffset),
+      y: centerY + Math.sin(angle) * (radius - typeOffset / 2),
+    };
+  });
 }
 
 function Field({ label, name, value, onChange, required = false, type = "text" }) {
@@ -440,6 +478,157 @@ function ThreatIntelPanel({ threatState, threatResult, threatError, onRun }) {
   );
 }
 
+function GraphInvestigationPanel({
+  graphData,
+  graphStatus,
+  graphError,
+  graphFilters,
+  selectedNode,
+  zoom,
+  onFilterChange,
+  onRefresh,
+  onNodeSelect,
+  onZoomChange,
+}) {
+  const nodes = layoutGraph(graphData?.nodes ?? []);
+  const nodeById = Object.fromEntries(nodes.map((node) => [node.id, node]));
+  const edges = graphData?.edges ?? [];
+
+  return (
+    <section className="graph-panel">
+      <div className="section-heading">
+        <div>
+          <h2>Graph Investigation</h2>
+          <p>Map source IPs, events, alerts, incidents, assets, and threat intel into a visual case graph.</p>
+        </div>
+        <button type="button" disabled={graphStatus === "loading"} onClick={onRefresh}>
+          {graphStatus === "loading" ? "Refreshing..." : "Refresh Graph"}
+        </button>
+      </div>
+
+      <div className="graph-controls">
+        <label>
+          <span>Source IP</span>
+          <input
+            value={graphFilters.source_ip}
+            onChange={(event) => onFilterChange("source_ip", event.target.value)}
+            placeholder="Any source IP"
+          />
+        </label>
+        <label>
+          <span>Severity</span>
+          <select value={graphFilters.severity} onChange={(event) => onFilterChange("severity", event.target.value)}>
+            <option value="">Any severity</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+            <option value="critical">critical</option>
+          </select>
+        </label>
+        <label>
+          <span>Limit</span>
+          <input
+            type="number"
+            min="25"
+            max="500"
+            value={graphFilters.limit}
+            onChange={(event) => onFilterChange("limit", event.target.value)}
+          />
+        </label>
+        <label>
+          <span>Zoom</span>
+          <input
+            type="range"
+            min="70"
+            max="140"
+            value={zoom}
+            onChange={(event) => onZoomChange(Number(event.target.value))}
+          />
+        </label>
+      </div>
+
+      {graphError && <span className="form-error">{graphError}</span>}
+
+      {graphData && (
+        <div className="graph-summary">
+          <span>{graphData.summary.nodes} nodes</span>
+          <span>{graphData.summary.edges} edges</span>
+          <span>{graphData.summary.high_risk_nodes} high risk</span>
+        </div>
+      )}
+
+      {graphStatus === "loading" && <div className="state-panel">Loading investigation graph...</div>}
+
+      {graphStatus !== "loading" && nodes.length === 0 && (
+        <p className="empty-state">No graph relationships found. Run detection, enrichment, or correlation first.</p>
+      )}
+
+      {nodes.length > 0 && (
+        <div className="graph-workspace">
+          <svg className="graph-canvas" viewBox="0 0 1040 560" style={{ transform: `scale(${zoom / 100})` }}>
+            {edges.map((edge) => {
+              const source = nodeById[edge.source];
+              const target = nodeById[edge.target];
+              if (!source || !target) return null;
+              const midX = (source.x + target.x) / 2;
+              const midY = (source.y + target.y) / 2;
+
+              return (
+                <g key={edge.id}>
+                  <line x1={source.x} y1={source.y} x2={target.x} y2={target.y} className="graph-edge" />
+                  <text x={midX} y={midY} className="graph-edge-label">
+                    {edge.relationship}
+                  </text>
+                </g>
+              );
+            })}
+
+            {nodes.map((node) => {
+              const highRisk = node.risk_score >= 70 || ["high", "critical"].includes(node.severity);
+              return (
+                <g
+                  key={node.id}
+                  className={`graph-node ${highRisk ? "graph-node-high" : ""}`}
+                  onClick={() => onNodeSelect(node)}
+                >
+                  <circle cx={node.x} cy={node.y} r={highRisk ? 24 : 19} fill={nodeColors[node.type] ?? "#94a3b8"} />
+                  <text x={node.x} y={node.y + 38} className="graph-node-label">
+                    {node.label}
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+
+          <aside className="graph-detail">
+            {selectedNode ? (
+              <>
+                <span className="threat-badge">{selectedNode.type}</span>
+                <h3>{selectedNode.label}</h3>
+                <p>{selectedNode.id}</p>
+                <div className="activity-meta">
+                  <span>Risk {selectedNode.risk_score}</span>
+                  <span>{selectedNode.severity}</span>
+                </div>
+                <dl>
+                  {Object.entries(selectedNode.metadata ?? {}).map(([key, value]) => (
+                    <div key={key}>
+                      <dt>{key}</dt>
+                      <dd>{String(value)}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </>
+            ) : (
+              <p>Select a node to inspect metadata.</p>
+            )}
+          </aside>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function CorrelationPanel({ correlationState, correlationResult, correlationError, onRun }) {
   const chains = correlationResult?.chains ?? [];
 
@@ -642,6 +831,12 @@ export default function Dashboard() {
   const [correlationState, setCorrelationState] = useState("idle");
   const [correlationResult, setCorrelationResult] = useState(null);
   const [correlationError, setCorrelationError] = useState("");
+  const [graphData, setGraphData] = useState(null);
+  const [graphStatus, setGraphStatus] = useState("idle");
+  const [graphError, setGraphError] = useState("");
+  const [graphFilters, setGraphFilters] = useState({ source_ip: "", severity: "", limit: "150" });
+  const [selectedGraphNode, setSelectedGraphNode] = useState(null);
+  const [graphZoom, setGraphZoom] = useState(100);
   const [liveNotice, setLiveNotice] = useState("");
 
   const realtimeStatus = useRealtimeAlerts({ onMessage: handleRealtimeMessage });
@@ -667,6 +862,7 @@ export default function Dashboard() {
     }
 
     loadDashboard();
+    loadGraph();
 
     return () => {
       isMounted = false;
@@ -713,8 +909,35 @@ export default function Dashboard() {
       });
     }
 
+    if (["graph_updated", "correlation_completed", "threat_intel_enrichment", "alert_created"].includes(message.type)) {
+      await loadGraph();
+    }
+
     setLiveNotice("Live update received");
     await refreshSlices(["alerts", "incidents", "activity"]);
+  }
+
+  async function loadGraph() {
+    try {
+      setGraphStatus("loading");
+      setGraphError("");
+      const result = await apiGet(buildGraphPath(graphFilters));
+      setGraphData(result);
+      setSelectedGraphNode((currentNode) =>
+        currentNode ? result.nodes.find((node) => node.id === currentNode.id) ?? null : null,
+      );
+      setGraphStatus("ready");
+    } catch (requestError) {
+      setGraphError(requestError.message);
+      setGraphStatus("error");
+    }
+  }
+
+  function handleGraphFilterChange(name, value) {
+    setGraphFilters((currentFilters) => ({
+      ...currentFilters,
+      [name]: value,
+    }));
   }
 
   function buildPayload() {
@@ -937,6 +1160,21 @@ export default function Dashboard() {
           correlationResult={correlationResult}
           correlationError={correlationError}
           onRun={handleRunCorrelationEngine}
+        />
+      )}
+
+      {status === "ready" && (
+        <GraphInvestigationPanel
+          graphData={graphData}
+          graphStatus={graphStatus}
+          graphError={graphError}
+          graphFilters={graphFilters}
+          selectedNode={selectedGraphNode}
+          zoom={graphZoom}
+          onFilterChange={handleGraphFilterChange}
+          onRefresh={loadGraph}
+          onNodeSelect={setSelectedGraphNode}
+          onZoomChange={setGraphZoom}
         />
       )}
 

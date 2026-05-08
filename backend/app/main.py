@@ -9,6 +9,7 @@ from app.api.routes import (
     demo,
     detections,
     events,
+    graph,
     health,
     incidents,
     realtime,
@@ -60,5 +61,6 @@ app.include_router(incidents.router, prefix=f"{settings.api_prefix}/incidents", 
 app.include_router(detections.router, prefix=f"{settings.api_prefix}/detections", tags=["detections"])
 app.include_router(correlation.router, prefix=f"{settings.api_prefix}/correlation", tags=["correlation"])
 app.include_router(threat_intel.router, prefix=f"{settings.api_prefix}/threat-intel", tags=["threat-intel"])
+app.include_router(graph.router, prefix=f"{settings.api_prefix}/graph", tags=["graph"])
 app.include_router(websocket.router, prefix=f"{settings.api_prefix}/ws", tags=["websocket"])
 app.include_router(realtime.router, tags=["realtime"])
