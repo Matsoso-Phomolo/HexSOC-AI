@@ -12,6 +12,12 @@ class IncidentCreate(BaseModel):
     summary: str | None = None
     description: str | None = None
     alert_id: int | None = None
+    assigned_to: str | None = None
+    priority: str | None = None
+    case_status: str | None = None
+    escalation_level: str | None = None
+    resolution_summary: str | None = None
+    closed_at: datetime | None = None
 
 
 class IncidentStatusUpdate(BaseModel):

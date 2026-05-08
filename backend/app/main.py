@@ -5,6 +5,7 @@ from app.api.routes import (
     activity,
     alerts,
     assets,
+    cases,
     copilot,
     correlation,
     demo,
@@ -59,6 +60,7 @@ app.include_router(assets.router, prefix=f"{settings.api_prefix}/assets", tags=[
 app.include_router(events.router, prefix=f"{settings.api_prefix}/events", tags=["events"])
 app.include_router(alerts.router, prefix=f"{settings.api_prefix}/alerts", tags=["alerts"])
 app.include_router(incidents.router, prefix=f"{settings.api_prefix}/incidents", tags=["incidents"])
+app.include_router(cases.router, prefix=f"{settings.api_prefix}/cases", tags=["cases"])
 app.include_router(detections.router, prefix=f"{settings.api_prefix}/detections", tags=["detections"])
 app.include_router(copilot.router, prefix=f"{settings.api_prefix}/copilot", tags=["copilot"])
 app.include_router(correlation.router, prefix=f"{settings.api_prefix}/correlation", tags=["correlation"])

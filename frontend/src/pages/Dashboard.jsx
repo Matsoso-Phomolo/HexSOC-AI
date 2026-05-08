@@ -775,6 +775,228 @@ function CopilotPanel({
   );
 }
 
+function CaseManagementPanel({
+  incidents,
+  selectedCaseId,
+  caseDetails,
+  activeTab,
+  caseForm,
+  noteForm,
+  evidenceForm,
+  notes,
+  evidence,
+  report,
+  copilot,
+  state,
+  error,
+  onSelectCase,
+  onTabChange,
+  onCaseFieldChange,
+  onNoteFieldChange,
+  onEvidenceFieldChange,
+  onUpdateCase,
+  onAddNote,
+  onAddEvidence,
+  onGenerateReport,
+  onGenerateCopilot,
+}) {
+  return (
+    <section className="case-panel">
+      <div className="section-heading">
+        <div>
+          <h2>Case Management</h2>
+          <p>Manage incident assignment, notes, evidence, and SOC report output.</p>
+        </div>
+        <span>{incidents.length} cases</span>
+      </div>
+
+      {incidents.length === 0 ? (
+        <p className="empty-state">No cases available. Create an incident to start case management.</p>
+      ) : (
+        <>
+          <div className="case-layout">
+            <aside className="case-list">
+              {incidents.map((incident) => (
+                <button
+                  key={incident.id}
+                  type="button"
+                  className={String(incident.id) === String(selectedCaseId) ? "active-case" : ""}
+                  onClick={() => onSelectCase(String(incident.id))}
+                >
+                  <strong>{incident.title}</strong>
+                  <span>{incident.severity} | {incident.case_status || incident.status}</span>
+                </button>
+              ))}
+            </aside>
+
+            <div className="case-workspace">
+              <div className="tab-row" role="tablist" aria-label="Case sections">
+                {["overview", "notes", "evidence", "report"].map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    className={activeTab === tab ? "active-tab" : ""}
+                    onClick={() => onTabChange(tab)}
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
+
+              {error && <span className="form-error">{error}</span>}
+              {state === "loading" && <div className="state-panel">Loading case...</div>}
+
+              {caseDetails && activeTab === "overview" && (
+                <div className="case-card">
+                  <div className="record-title-row">
+                    <div>
+                      <h3>{caseDetails.title}</h3>
+                      <p>{caseDetails.description || caseDetails.summary || "No case summary yet."}</p>
+                    </div>
+                    <StatusBadge status={caseDetails.status} allowedStatuses={incidentStatuses} />
+                  </div>
+
+                  <div className="case-form-grid">
+                    <Field label="Assigned analyst" name="assigned_to" value={caseForm.assigned_to} onChange={onCaseFieldChange} />
+                    <SelectField
+                      label="Priority"
+                      name="priority"
+                      value={caseForm.priority}
+                      onChange={onCaseFieldChange}
+                      options={["", "low", "medium", "high", "critical"]}
+                    />
+                    <SelectField
+                      label="Case status"
+                      name="case_status"
+                      value={caseForm.case_status}
+                      onChange={onCaseFieldChange}
+                      options={["", "open", "investigating", "contained", "resolved", "closed"]}
+                    />
+                    <SelectField
+                      label="Escalation"
+                      name="escalation_level"
+                      value={caseForm.escalation_level}
+                      onChange={onCaseFieldChange}
+                      options={["", "tier1", "tier2", "tier3", "incident_commander"]}
+                    />
+                    <TextAreaField
+                      label="Resolution summary"
+                      name="resolution_summary"
+                      value={caseForm.resolution_summary}
+                      onChange={onCaseFieldChange}
+                    />
+                  </div>
+
+                  <div className="action-row">
+                    <button type="button" disabled={state === "saving"} onClick={onUpdateCase}>
+                      {state === "saving" ? "Updating..." : "Update Case"}
+                    </button>
+                    <button type="button" disabled={state === "saving"} onClick={onGenerateCopilot}>
+                      Generate Copilot Guidance
+                    </button>
+                  </div>
+
+                  {copilot && (
+                    <div className="analyst-note">
+                      <strong>Copilot guidance</strong>
+                      <p>{copilot.summary}</p>
+                      <p>{copilot.risk_assessment}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeTab === "notes" && (
+                <div className="case-card">
+                  <div className="case-form-grid">
+                    <Field label="Author" name="author" value={noteForm.author} onChange={onNoteFieldChange} />
+                    <SelectField
+                      label="Note type"
+                      name="note_type"
+                      value={noteForm.note_type}
+                      onChange={onNoteFieldChange}
+                      options={["investigation", "containment", "escalation", "evidence", "resolution"]}
+                    />
+                    <TextAreaField label="Note" name="content" value={noteForm.content} required onChange={onNoteFieldChange} />
+                  </div>
+                  <button type="button" disabled={state === "saving"} onClick={onAddNote}>
+                    Add Note
+                  </button>
+                  {notes.length === 0 ? (
+                    <p className="empty-state">No analyst notes yet.</p>
+                  ) : (
+                    <ul className="case-feed">
+                      {notes.map((note) => (
+                        <li key={note.id}>
+                          <strong>{note.note_type} | {note.author}</strong>
+                          <p>{note.content}</p>
+                          <span>{formatDateTime(note.created_at)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+
+              {activeTab === "evidence" && (
+                <div className="case-card">
+                  <div className="case-form-grid">
+                    <SelectField
+                      label="Evidence type"
+                      name="evidence_type"
+                      value={evidenceForm.evidence_type}
+                      onChange={onEvidenceFieldChange}
+                      options={["related_alert", "related_event", "threat_intel", "graph_node", "analyst_upload_placeholder"]}
+                    />
+                    <Field label="Title" name="title" value={evidenceForm.title} required onChange={onEvidenceFieldChange} />
+                    <Field label="Source" name="source" value={evidenceForm.source} onChange={onEvidenceFieldChange} />
+                    <Field label="Reference ID" name="reference_id" value={evidenceForm.reference_id} onChange={onEvidenceFieldChange} />
+                    <TextAreaField
+                      label="Description"
+                      name="description"
+                      value={evidenceForm.description}
+                      onChange={onEvidenceFieldChange}
+                    />
+                  </div>
+                  <button type="button" disabled={state === "saving"} onClick={onAddEvidence}>
+                    Add Evidence
+                  </button>
+                  {evidence.length === 0 ? (
+                    <p className="empty-state">No evidence records yet.</p>
+                  ) : (
+                    <ul className="case-feed">
+                      {evidence.map((item) => (
+                        <li key={item.id}>
+                          <strong>{item.evidence_type} | {item.title}</strong>
+                          <p>{item.description || "No description"}</p>
+                          <span>{[item.source, item.reference_id].filter(Boolean).join(" | ") || "No source"}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+
+              {activeTab === "report" && (
+                <div className="case-card">
+                  <button type="button" disabled={state === "saving"} onClick={onGenerateReport}>
+                    Generate JSON SOC Report
+                  </button>
+                  {report ? (
+                    <pre className="report-preview">{JSON.stringify(report, null, 2)}</pre>
+                  ) : (
+                    <p className="empty-state">Generate a report to preview structured case output.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 function CorrelationPanel({ correlationState, correlationResult, correlationError, onRun }) {
   const chains = correlationResult?.chains ?? [];
 
@@ -988,6 +1210,30 @@ export default function Dashboard() {
   const [copilotState, setCopilotState] = useState("idle");
   const [copilotResult, setCopilotResult] = useState(null);
   const [copilotError, setCopilotError] = useState("");
+  const [selectedCaseId, setSelectedCaseId] = useState("");
+  const [activeCaseTab, setActiveCaseTab] = useState("overview");
+  const [caseDetails, setCaseDetails] = useState(null);
+  const [caseNotes, setCaseNotes] = useState([]);
+  const [caseEvidence, setCaseEvidence] = useState([]);
+  const [caseReport, setCaseReport] = useState(null);
+  const [caseCopilot, setCaseCopilot] = useState(null);
+  const [caseState, setCaseState] = useState("idle");
+  const [caseError, setCaseError] = useState("");
+  const [caseForm, setCaseForm] = useState({
+    assigned_to: "",
+    priority: "",
+    case_status: "",
+    escalation_level: "",
+    resolution_summary: "",
+  });
+  const [noteForm, setNoteForm] = useState({ author: "analyst", note_type: "investigation", content: "" });
+  const [evidenceForm, setEvidenceForm] = useState({
+    evidence_type: "related_alert",
+    title: "",
+    description: "",
+    source: "",
+    reference_id: "",
+  });
   const [liveNotice, setLiveNotice] = useState("");
 
   const realtimeStatus = useRealtimeAlerts({ onMessage: handleRealtimeMessage });
@@ -1019,6 +1265,18 @@ export default function Dashboard() {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedCaseId && data.incidents.length > 0) {
+      setSelectedCaseId(String(data.incidents[0].id));
+    }
+  }, [data.incidents, selectedCaseId]);
+
+  useEffect(() => {
+    if (selectedCaseId) {
+      loadCase(selectedCaseId);
+    }
+  }, [selectedCaseId]);
 
   const totalRecords = useMemo(
     () => Object.values(data).reduce((total, items) => total + items.length, 0),
@@ -1062,6 +1320,13 @@ export default function Dashboard() {
 
     if (["graph_updated", "correlation_completed", "threat_intel_enrichment", "alert_created"].includes(message.type)) {
       await loadGraph();
+    }
+
+    if (["case_updated", "case_note_added", "case_evidence_added", "case_report_generated"].includes(message.type)) {
+      await refreshSlices(["incidents", "activity"]);
+      if (selectedCaseId && Number(selectedCaseId) === message.incident_id) {
+        await loadCase(selectedCaseId);
+      }
     }
 
     setLiveNotice("Live update received");
@@ -1289,6 +1554,141 @@ export default function Dashboard() {
     }
   }
 
+  async function loadCase(incidentId) {
+    try {
+      setCaseState("loading");
+      setCaseError("");
+      const [details, notes, evidenceItems] = await Promise.all([
+        apiGet(`/api/cases/${incidentId}`),
+        apiGet(`/api/cases/${incidentId}/notes`),
+        apiGet(`/api/cases/${incidentId}/evidence`),
+      ]);
+      setCaseDetails(details);
+      setCaseNotes(notes);
+      setCaseEvidence(evidenceItems);
+      setCaseForm({
+        assigned_to: details.assigned_to ?? "",
+        priority: details.priority ?? "",
+        case_status: details.case_status ?? "",
+        escalation_level: details.escalation_level ?? "",
+        resolution_summary: details.resolution_summary ?? "",
+      });
+      setCaseState("ready");
+    } catch (requestError) {
+      setCaseError(requestError.message);
+      setCaseState("error");
+    }
+  }
+
+  function handleCaseFieldChange(name, value) {
+    setCaseForm((currentForm) => ({ ...currentForm, [name]: value }));
+  }
+
+  function handleNoteFieldChange(name, value) {
+    setNoteForm((currentForm) => ({ ...currentForm, [name]: value }));
+  }
+
+  function handleEvidenceFieldChange(name, value) {
+    setEvidenceForm((currentForm) => ({ ...currentForm, [name]: value }));
+  }
+
+  async function handleUpdateCase() {
+    if (!selectedCaseId) return;
+    try {
+      setCaseState("saving");
+      setCaseError("");
+      const payload = Object.fromEntries(
+        Object.entries(caseForm).map(([key, value]) => [key, value.trim() || null]),
+      );
+      await apiPatch(`/api/cases/${selectedCaseId}`, payload);
+      await Promise.all([loadCase(selectedCaseId), refreshSlices(["incidents", "activity"])]);
+    } catch (requestError) {
+      setCaseError(requestError.message);
+      setCaseState("error");
+    }
+  }
+
+  async function handleAddCaseNote() {
+    if (!selectedCaseId) return;
+    if (!noteForm.content.trim()) {
+      setCaseError("Note content is required.");
+      return;
+    }
+    try {
+      setCaseState("saving");
+      setCaseError("");
+      await apiPost(`/api/cases/${selectedCaseId}/notes`, {
+        ...noteForm,
+        content: noteForm.content.trim(),
+      });
+      setNoteForm({ author: noteForm.author, note_type: "investigation", content: "" });
+      await Promise.all([loadCase(selectedCaseId), refreshSlices(["activity"])]);
+    } catch (requestError) {
+      setCaseError(requestError.message);
+      setCaseState("error");
+    }
+  }
+
+  async function handleAddCaseEvidence() {
+    if (!selectedCaseId) return;
+    if (!evidenceForm.title.trim()) {
+      setCaseError("Evidence title is required.");
+      return;
+    }
+    try {
+      setCaseState("saving");
+      setCaseError("");
+      await apiPost(`/api/cases/${selectedCaseId}/evidence`, {
+        ...evidenceForm,
+        title: evidenceForm.title.trim(),
+        description: evidenceForm.description.trim() || null,
+        source: evidenceForm.source.trim() || null,
+        reference_id: evidenceForm.reference_id.trim() || null,
+      });
+      setEvidenceForm({
+        evidence_type: "related_alert",
+        title: "",
+        description: "",
+        source: "",
+        reference_id: "",
+      });
+      await Promise.all([loadCase(selectedCaseId), refreshSlices(["activity"])]);
+    } catch (requestError) {
+      setCaseError(requestError.message);
+      setCaseState("error");
+    }
+  }
+
+  async function handleGenerateCaseReport() {
+    if (!selectedCaseId) return;
+    try {
+      setCaseState("saving");
+      setCaseError("");
+      const report = await apiGet(`/api/cases/${selectedCaseId}/report`);
+      setCaseReport(report);
+      await refreshSlices(["activity"]);
+      setCaseState("ready");
+    } catch (requestError) {
+      setCaseError(requestError.message);
+      setCaseState("error");
+    }
+  }
+
+  async function handleGenerateCaseCopilot() {
+    if (!selectedCaseId) return;
+    try {
+      setCaseState("saving");
+      setCaseError("");
+      const result = await apiGet(`/api/copilot/incident/${selectedCaseId}`);
+      setCaseCopilot(result);
+      await refreshSlices(["activity"]);
+      setCaseState("ready");
+    } catch (requestError) {
+      setCaseError(requestError.message);
+      setCaseState("error");
+    }
+  }
+
   return (
     <main className="app-shell">
       <section className="page-header">
@@ -1388,6 +1788,38 @@ export default function Dashboard() {
           }}
           onTargetChange={setCopilotTargetId}
           onAnalyze={handleRunCopilotAnalysis}
+        />
+      )}
+
+      {status === "ready" && (
+        <CaseManagementPanel
+          incidents={data.incidents}
+          selectedCaseId={selectedCaseId}
+          caseDetails={caseDetails}
+          activeTab={activeCaseTab}
+          caseForm={caseForm}
+          noteForm={noteForm}
+          evidenceForm={evidenceForm}
+          notes={caseNotes}
+          evidence={caseEvidence}
+          report={caseReport}
+          copilot={caseCopilot}
+          state={caseState}
+          error={caseError}
+          onSelectCase={(incidentId) => {
+            setSelectedCaseId(incidentId);
+            setCaseReport(null);
+            setCaseCopilot(null);
+          }}
+          onTabChange={setActiveCaseTab}
+          onCaseFieldChange={handleCaseFieldChange}
+          onNoteFieldChange={handleNoteFieldChange}
+          onEvidenceFieldChange={handleEvidenceFieldChange}
+          onUpdateCase={handleUpdateCase}
+          onAddNote={handleAddCaseNote}
+          onAddEvidence={handleAddCaseEvidence}
+          onGenerateReport={handleGenerateCaseReport}
+          onGenerateCopilot={handleGenerateCaseCopilot}
         />
       )}
 

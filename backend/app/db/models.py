@@ -92,6 +92,40 @@ class Incident(Base, TimestampMixin):
     summary = Column(Text, nullable=True)
     description = Column(Text, nullable=True)
     alert_id = Column(Integer, ForeignKey("alerts.id"), nullable=True, index=True)
+    assigned_to = Column(String(120), nullable=True, index=True)
+    priority = Column(String(40), nullable=True, index=True)
+    case_status = Column(String(40), nullable=True, index=True)
+    escalation_level = Column(String(40), nullable=True)
+    resolution_summary = Column(Text, nullable=True)
+    closed_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class CaseNote(Base):
+    """Analyst note attached to an incident case."""
+
+    __tablename__ = "case_notes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    incident_id = Column(Integer, ForeignKey("incidents.id"), nullable=False, index=True)
+    author = Column(String(120), nullable=False, default="analyst")
+    note_type = Column(String(40), nullable=False, default="investigation", index=True)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class CaseEvidence(Base):
+    """Evidence record attached to an incident case."""
+
+    __tablename__ = "case_evidence"
+
+    id = Column(Integer, primary_key=True, index=True)
+    incident_id = Column(Integer, ForeignKey("incidents.id"), nullable=False, index=True)
+    evidence_type = Column(String(80), nullable=False, default="analyst_upload_placeholder", index=True)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    source = Column(String(120), nullable=True)
+    reference_id = Column(String(120), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class ActivityLog(Base):
