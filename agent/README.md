@@ -11,17 +11,19 @@ The HexSOC Agent is a lightweight telemetry sender for testing live collector in
    - Type: `sysmon`
    - Source label: `lab-windows`
 4. Copy the API key when it is shown. It will not be displayed again.
-5. Create a local config file from the example:
+5. Create environment config files from the examples:
 
 ```powershell
-Copy-Item config.example.json config.json
+Copy-Item config.local.example.json config.local.json
+Copy-Item config.staging.example.json config.staging.json
+Copy-Item config.production.example.json config.production.json
 ```
 
-6. Edit `config.json` and set:
+6. Edit the target config and set:
 
 ```json
 {
-  "backend_url": "https://hexsoc-ai.onrender.com",
+  "backend_url": "http://127.0.0.1:9000",
   "collector_api_key": "PUT_COLLECTOR_KEY_HERE",
   "mode": "windows_sysmon_sample",
   "batch_size": 10,
@@ -34,7 +36,31 @@ Copy-Item config.example.json config.json
 }
 ```
 
-`config.json` is ignored by git so real collector keys are not committed.
+Real config files are ignored by git so collector keys are not committed.
+
+## Environments
+
+If no `--config` is supplied, the agent defaults to local mode and loads `config.local.json`.
+
+```powershell
+python hexsoc_agent.py --env local --interval 60
+python hexsoc_agent.py --env staging --interval 60
+python hexsoc_agent.py --env production --interval 60
+```
+
+Config resolution:
+
+- `--env local` loads `config.local.json`
+- `--env staging` loads `config.staging.json`
+- `--env production` loads `config.production.json`
+
+Explicit config paths remain supported:
+
+```powershell
+python hexsoc_agent.py --config config.json --once
+```
+
+The startup banner prints `ENVIRONMENT: LOCAL`, `ENVIRONMENT: STAGING`, or `ENVIRONMENT: PRODUCTION`. The agent warns if production points at localhost or local points at a public backend.
 
 ## Run
 
@@ -47,19 +73,19 @@ pip install -r requirements.txt
 Send only a heartbeat:
 
 ```powershell
-python hexsoc_agent.py --config config.json --heartbeat-only
+python hexsoc_agent.py --heartbeat-only
 ```
 
 Send the sample Windows/Sysmon telemetry once:
 
 ```powershell
-python hexsoc_agent.py --config config.json --once
+python hexsoc_agent.py --once
 ```
 
-Run continuously with heartbeat monitoring:
+Run continuously with heartbeat and telemetry:
 
 ```powershell
-python hexsoc_agent.py --config config.json --interval 60
+python hexsoc_agent.py --interval 60
 ```
 
 Continuous mode runs until `Ctrl+C` and repeats:
@@ -72,13 +98,13 @@ Continuous mode runs until `Ctrl+C` and repeats:
 Heartbeat-only service mode:
 
 ```powershell
-python hexsoc_agent.py --config config.json --heartbeat-loop --interval 60
+python hexsoc_agent.py --heartbeat-loop --interval 60
 ```
 
 Telemetry-only service mode:
 
 ```powershell
-python hexsoc_agent.py --config config.json --telemetry-only --interval 60
+python hexsoc_agent.py --telemetry-only --interval 60
 ```
 
 Temporary network failures are logged and retried on the next cycle instead of stopping the agent.
@@ -86,14 +112,14 @@ Temporary network failures are logged and retried on the next cycle instead of s
 Use a custom events file:
 
 ```powershell
-python hexsoc_agent.py --config config.json --once --events-file sample_windows_events.json
+python hexsoc_agent.py --once --events-file sample_windows_events.json
 ```
 
 You can also provide the key through the environment:
 
 ```powershell
 $env:COLLECTOR_API_KEY = "hexsoc_live_xxxxxxxx_secret"
-python hexsoc_agent.py --config config.json --once
+python hexsoc_agent.py --once
 ```
 
 ## Verify

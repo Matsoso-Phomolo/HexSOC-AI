@@ -19,11 +19,17 @@ from typing import Any
 from urllib import error, request
 
 
-DEFAULT_CONFIG = "config.json"
+DEFAULT_ENVIRONMENT = "local"
 DEFAULT_EVENTS_FILE = "sample_windows_events.json"
 DEFAULT_AGENT_VERSION = "0.1.0"
 DEFAULT_INTERVAL_SECONDS = 60
 DEFAULT_RETRY_DELAY_SECONDS = 10
+ENV_CONFIG_FILES = {
+    "local": "config.local.json",
+    "staging": "config.staging.json",
+    "production": "config.production.json",
+}
+AGENT_DIR = Path(__file__).resolve().parent
 
 
 def load_json_file(path: Path) -> dict[str, Any]:
@@ -38,6 +44,31 @@ def load_json_file(path: Path) -> dict[str, Any]:
 def normalize_backend_url(value: str) -> str:
     """Normalize backend URL without a trailing slash."""
     return value.rstrip("/")
+
+
+def is_local_backend_url(value: str) -> bool:
+    """Return whether a backend URL points to a local development host."""
+    normalized = value.lower()
+    return "localhost" in normalized or "127.0.0.1" in normalized or "[::1]" in normalized
+
+
+def resolve_config_path(args: argparse.Namespace) -> tuple[Path, str]:
+    """Resolve config path and effective environment."""
+    environment = (args.env or DEFAULT_ENVIRONMENT).lower()
+    if environment not in ENV_CONFIG_FILES:
+        raise ValueError(f"Unsupported environment: {environment}")
+    if args.config:
+        return Path(args.config), environment
+    return AGENT_DIR / ENV_CONFIG_FILES[environment], environment
+
+
+def warn_environment_safety(environment: str, backend_url: str) -> None:
+    """Print environment/backend mismatch warnings without blocking startup."""
+    is_local = is_local_backend_url(backend_url)
+    if environment == "production" and is_local:
+        print("WARNING: production environment is configured with a localhost backend.", file=sys.stderr)
+    if environment == "local" and not is_local:
+        print("WARNING: local environment is configured with a public backend URL.", file=sys.stderr)
 
 
 def post_json(url: str, api_key: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -73,12 +104,13 @@ def log_line(message: str) -> None:
     print(f"[{now_label()}] {message}", flush=True)
 
 
-def print_loop_header(config: dict[str, Any], backend_url: str, interval: int, mode: str) -> None:
+def print_loop_header(config: dict[str, Any], backend_url: str, interval: int, mode: str, environment: str) -> None:
     """Print a readable startup banner for service mode."""
     host_name = str(config.get("host_name") or socket.gethostname())
     print("=" * 48)
     print("HEXSOC AI AGENT LOOP")
     print("=" * 48)
+    print(f"ENVIRONMENT: {environment.upper()}")
     print(f"collector: {host_name}")
     print(f"mode: {mode}")
     print(f"interval: {interval}s")
@@ -167,7 +199,8 @@ def summarize_ingestion(index: int, ingestion: dict[str, Any]) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse HexSOC Agent CLI flags."""
     parser = argparse.ArgumentParser(description="HexSOC Agent telemetry sender")
-    parser.add_argument("--config", default=DEFAULT_CONFIG, help="Path to config JSON")
+    parser.add_argument("--config", help="Path to config JSON")
+    parser.add_argument("--env", choices=sorted(ENV_CONFIG_FILES), default=DEFAULT_ENVIRONMENT, help="Agent environment")
     parser.add_argument("--once", action="store_true", help="Send one telemetry batch and exit")
     parser.add_argument("--heartbeat-only", action="store_true", help="Only send collector heartbeat")
     parser.add_argument("--heartbeat-loop", action="store_true", help="Run continuous heartbeats only")
@@ -180,8 +213,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     """Agent entrypoint."""
     args = parse_args()
-    config_path = Path(args.config)
-    config = load_json_file(config_path)
+    try:
+        config_path, environment = resolve_config_path(args)
+        config = load_json_file(config_path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"Could not load agent config: {exc}", file=sys.stderr)
+        return 2
 
     backend_url = normalize_backend_url(str(config.get("backend_url", "")))
     api_key = os.getenv("COLLECTOR_API_KEY") or str(config.get("collector_api_key", ""))
@@ -198,6 +235,7 @@ def main() -> int:
     if not backend_url:
         print("backend_url is required in config.", file=sys.stderr)
         return 2
+    warn_environment_safety(environment, backend_url)
     if not api_key or api_key == "PUT_COLLECTOR_KEY_HERE":
         print("collector_api_key is required in config or COLLECTOR_API_KEY.", file=sys.stderr)
         return 2
@@ -227,7 +265,7 @@ def main() -> int:
         events_payload = load_json_file(events_file)
 
     mode = "heartbeat-only" if args.heartbeat_loop else "telemetry-only" if args.telemetry_only else "heartbeat + telemetry"
-    print_loop_header(config, backend_url, interval, mode)
+    print_loop_header(config, backend_url, interval, mode, environment)
     run_service_loop(
         backend_url=backend_url,
         api_key=api_key,

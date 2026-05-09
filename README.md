@@ -156,19 +156,27 @@ Basic local flow:
 
 1. Create a collector from the Live Collectors panel.
 2. Copy the one-time API key.
-3. Create `agent/config.json` from `agent/config.example.json`.
+3. Create `agent/config.local.json` from `agent/config.local.example.json`.
 4. Run:
 
 ```powershell
 cd "C:\Users\windows 10\Desktop\Workshop\hexsoc-ai\agent"
 pip install -r requirements.txt
-python hexsoc_agent.py --config config.json --heartbeat-only
-python hexsoc_agent.py --config config.json --once
-python hexsoc_agent.py --config config.json --interval 60
+python hexsoc_agent.py --heartbeat-only
+python hexsoc_agent.py --once
+python hexsoc_agent.py --interval 60
 ```
 
 The agent sends a heartbeat to `POST /api/collectors/heartbeat`, then submits Windows/Sysmon telemetry to `/api/collectors/ingest/windows-events/bulk?auto_detect=true`. Confirm the dashboard shows new events, alert detections, activity records, and an updated collector `last_seen_at`.
 
 Long-running service mode repeats heartbeat, telemetry ingestion, post-ingestion heartbeat, and sleep until `Ctrl+C`. Use `--heartbeat-loop` for heartbeats only or `--telemetry-only` for ingestion without heartbeat.
+
+Environment-specific runs load `config.local.json`, `config.staging.json`, or `config.production.json`:
+
+```powershell
+python hexsoc_agent.py --env local --interval 60
+python hexsoc_agent.py --env staging --interval 60
+python hexsoc_agent.py --env production --interval 60
+```
 
 Collector fleet health is available at `GET /api/collectors/health`. The Live Collectors panel displays online, stale, offline, and revoked counts, along with agent version, host name, OS details, heartbeat count, last heartbeat time, last event count, and last error.

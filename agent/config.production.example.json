@@ -1,0 +1,12 @@
+{
+  "backend_url": "https://hexsoc-ai.onrender.com",
+  "collector_api_key": "PUT_PRODUCTION_COLLECTOR_KEY_HERE",
+  "mode": "windows_sysmon_sample",
+  "batch_size": 10,
+  "auto_detect": true,
+  "agent_version": "0.1.0",
+  "heartbeat_interval_seconds": 60,
+  "telemetry_interval_seconds": 60,
+  "retry_delay_seconds": 10,
+  "send_events_on_interval": true
+}

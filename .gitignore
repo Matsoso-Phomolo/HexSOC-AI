@@ -18,6 +18,9 @@ build/
 .env.*
 !.env.example
 agent/config.json
+agent/config.local.json
+agent/config.staging.json
+agent/config.production.json
 *.pem
 *.key
 
