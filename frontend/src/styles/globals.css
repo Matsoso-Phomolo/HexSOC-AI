@@ -1046,6 +1046,26 @@ body {
   padding: 9px 12px;
 }
 
+.collector-key-header,
+.collector-key-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.collector-key-actions {
+  justify-content: flex-start;
+}
+
+.collector-key-box .collector-key-close {
+  border-color: #854d0e;
+  background: transparent;
+  color: #fde68a;
+  min-width: 36px;
+  padding: 6px 10px;
+}
+
 .collector-key-box {
   border: 1px solid #854d0e;
   border-radius: 8px;
@@ -1063,6 +1083,12 @@ body {
 .collector-key-box code {
   color: #e5edf6;
   overflow-wrap: anywhere;
+}
+
+.collector-key-copied {
+  color: #d1fae5;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .collector-health-summary {

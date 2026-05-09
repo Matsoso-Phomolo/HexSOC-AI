@@ -1548,6 +1548,8 @@ function CollectorManagementPanel({
   onRevoke,
   onRefresh,
   onCopyKey,
+  onDismissKey,
+  keyCopied,
   canCreate,
   canAdmin,
 }) {
@@ -1578,9 +1580,18 @@ function CollectorManagementPanel({
 
       {oneTimeKey && (
         <div className="collector-key-box">
-          <strong>Store this key now. It will not be shown again.</strong>
+          <div className="collector-key-header">
+            <strong>Store this key now. It will not be shown again.</strong>
+            <button type="button" className="collector-key-close" aria-label="Dismiss collector key" onClick={onDismissKey}>
+              X
+            </button>
+          </div>
           <code>{oneTimeKey}</code>
-          <button type="button" onClick={onCopyKey}>Copy key</button>
+          {keyCopied && <span className="collector-key-copied">Copied. Store it securely.</span>}
+          <div className="collector-key-actions">
+            <button type="button" onClick={onCopyKey}>Copy key</button>
+            <button type="button" onClick={onDismissKey}>Done</button>
+          </div>
         </div>
       )}
 
@@ -1931,6 +1942,7 @@ export default function Dashboard() {
   const [collectorState, setCollectorState] = useState("idle");
   const [collectorError, setCollectorError] = useState("");
   const [collectorOneTimeKey, setCollectorOneTimeKey] = useState("");
+  const [collectorKeyCopied, setCollectorKeyCopied] = useState(false);
   const [liveNotice, setLiveNotice] = useState("");
 
   const realtimeStatus = useRealtimeAlerts({ onMessage: handleRealtimeMessage });
@@ -2714,6 +2726,7 @@ export default function Dashboard() {
         source_label: collectorForm.source_label.trim() || null,
       });
       setCollectorOneTimeKey(response.api_key);
+      setCollectorKeyCopied(false);
       setCollectorForm(initialCollectorForm);
       await Promise.all([loadCollectors(), refreshSlices(["activity"])]);
       setCollectorState("ready");
@@ -2729,6 +2742,7 @@ export default function Dashboard() {
       setCollectorError("");
       const response = await apiPost(`/api/collectors/${collectorId}/rotate`, {});
       setCollectorOneTimeKey(response.api_key);
+      setCollectorKeyCopied(false);
       await Promise.all([loadCollectors(), refreshSlices(["activity"])]);
       setCollectorState("ready");
     } catch (requestError) {
@@ -2753,6 +2767,12 @@ export default function Dashboard() {
   async function handleCopyCollectorKey() {
     if (!collectorOneTimeKey) return;
     await navigator.clipboard.writeText(collectorOneTimeKey);
+    setCollectorKeyCopied(true);
+  }
+
+  function handleDismissCollectorKey() {
+    setCollectorOneTimeKey("");
+    setCollectorKeyCopied(false);
   }
 
   function handleAuthFieldChange(name, value) {
@@ -3024,12 +3044,14 @@ export default function Dashboard() {
           state={collectorState}
           error={collectorError}
           oneTimeKey={collectorOneTimeKey}
+          keyCopied={collectorKeyCopied}
           onFieldChange={handleCollectorFieldChange}
           onCreate={handleCreateCollector}
           onRotate={handleRotateCollector}
           onRevoke={handleRevokeCollector}
           onRefresh={loadCollectors}
           onCopyKey={handleCopyCollectorKey}
+          onDismissKey={handleDismissCollectorKey}
           canCreate={canOperate}
           canAdmin={isAdmin}
         />
