@@ -38,6 +38,14 @@ body {
   margin: 0;
 }
 
+.auth-card .auth-subtitle {
+  color: #93a4b8;
+  font-size: 15px;
+  font-weight: 500;
+  margin: 10px 0 18px;
+  text-transform: none;
+}
+
 .app-shell {
   min-height: 100vh;
   padding: 32px;

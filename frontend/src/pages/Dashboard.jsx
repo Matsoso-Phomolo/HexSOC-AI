@@ -432,7 +432,8 @@ function AuthScreen({ authMode, authForm, authError, authState, onModeChange, on
     <main className="auth-shell">
       <section className="auth-card">
         <p>HexSOC AI</p>
-        <h1>SOC Analyst Login</h1>
+        <h1>HexSOC AI Secure Access</h1>
+        <p className="auth-subtitle">Sign in to the Security Operations Command Center.</p>
         <form className="record-form" onSubmit={onSubmit}>
           {authMode === "register" && (
             <>
@@ -453,10 +454,10 @@ function AuthScreen({ authMode, authForm, authError, authState, onModeChange, on
           <Field label="Password" name="password" type="password" value={authForm.password} required onChange={onFieldChange} />
           <div className="form-footer">
             <button type="submit" disabled={authState === "loading"}>
-              {authState === "loading" ? "Please wait..." : authMode === "login" ? "Login" : "Register"}
+              {authState === "loading" ? "Please wait..." : authMode === "login" ? "Sign in" : "Create account"}
             </button>
             <button type="button" onClick={() => onModeChange(authMode === "login" ? "register" : "login")}>
-              {authMode === "login" ? "Create account" : "Back to login"}
+              {authMode === "login" ? "Request / Create account" : "Back to sign in"}
             </button>
             {authError && <span className="form-error">{authError}</span>}
           </div>
