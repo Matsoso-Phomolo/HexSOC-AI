@@ -83,11 +83,18 @@ const resourcePaths = {
 
 const nodeColors = {
   source_ip: "#38bdf8",
+  destination_ip: "#67e8f9",
   asset: "#a5b4fc",
+  user: "#86efac",
+  process: "#fbbf24",
   event: "#facc15",
+  event_cluster: "#facc15",
   alert: "#fb7185",
+  alert_cluster: "#fb7185",
+  cluster_member: "#64748b",
   incident: "#f97316",
   threat_intel: "#c084fc",
+  mitre_technique: "#c084fc",
 };
 
 const sampleIngestionLogs = {
@@ -348,12 +355,21 @@ function MitreBadges({ item }) {
 
 function buildGraphPath(filters) {
   const params = new URLSearchParams();
-  const sourceIp = filters.source_ip.trim();
-  const severity = filters.severity.trim();
+  const sourceIp = (filters.source_ip ?? "").trim();
+  const severity = (filters.severity ?? "").trim();
+  const nodeType = (filters.node_type ?? "").trim();
+  const mitreTactic = (filters.mitre_tactic ?? "").trim();
+  const hostname = (filters.hostname ?? "").trim();
+  const timeWindow = (filters.time_window ?? "").trim();
   const limit = Number.parseInt(filters.limit, 10);
 
   if (sourceIp) params.set("source_ip", sourceIp);
   if (severity) params.set("severity", severity);
+  if (nodeType) params.set("node_type", nodeType);
+  if (mitreTactic) params.set("mitre_tactic", mitreTactic);
+  if (hostname) params.set("hostname", hostname);
+  if (timeWindow) params.set("time_window", timeWindow);
+  if (filters.cluster_mode === false) params.set("aggregate", "false");
   if (Number.isInteger(limit) && limit >= 1 && limit <= 500) {
     params.set("limit", String(limit));
   }
@@ -362,23 +378,123 @@ function buildGraphPath(filters) {
   return `/api/graph/investigation${query ? `?${query}` : ""}`;
 }
 
-function layoutGraph(nodes) {
+function layoutGraph(nodes, physicsEnabled = false) {
   const centerX = 520;
   const centerY = 260;
-  const radius = Math.max(150, Math.min(240, nodes.length * 18));
+  const typeLayout = {
+    source_ip: { radius: 55, yScale: 0.55, xOffset: 0 },
+    asset: { radius: 155, yScale: 0.6, xOffset: 0 },
+    user: { radius: 210, yScale: 0.55, xOffset: -70 },
+    process: { radius: 235, yScale: 0.55, xOffset: -40 },
+    destination_ip: { radius: 245, yScale: 0.55, xOffset: 60 },
+    event_cluster: { radius: 295, yScale: 0.58, xOffset: -80 },
+    alert_cluster: { radius: 335, yScale: 0.58, xOffset: 0 },
+    event: { radius: 360, yScale: 0.58, xOffset: -90 },
+    alert: { radius: 370, yScale: 0.58, xOffset: 20 },
+    cluster_member: { radius: 390, yScale: 0.58, xOffset: -20 },
+    incident: { radius: 405, yScale: 0.52, xOffset: 70 },
+    mitre_technique: { radius: 0, yScale: 1, xOffset: 390 },
+  };
+  const grouped = nodes.reduce((groups, node) => {
+    const key = node.type ?? "unknown";
+    groups[key] = groups[key] ?? [];
+    groups[key].push(node);
+    return groups;
+  }, {});
 
   return nodes.map((node, index) => {
-    if (node.type === "source_ip") {
-      return { ...node, x: centerX, y: centerY };
-    }
+    const siblings = grouped[node.type] ?? nodes;
+    const siblingIndex = siblings.findIndex((item) => item.id === node.id);
+    const layout = typeLayout[node.type] ?? { radius: 260, yScale: 0.58, xOffset: 0 };
+    const radius = layout.radius;
+    const angle = (Math.PI * 2 * Math.max(siblingIndex, 0)) / Math.max(siblings.length, 1) - Math.PI / 2;
+    const collisionOffset = physicsEnabled ? (index % 7) * 13 : (index % 4) * 8;
+    const mitreY = 90 + (siblingIndex * 74) % 380;
 
-    const angle = (Math.PI * 2 * index) / Math.max(nodes.length, 1) - Math.PI / 2;
-    const typeOffset = Object.keys(nodeColors).indexOf(node.type) * 18;
     return {
       ...node,
-      x: centerX + Math.cos(angle) * (radius + typeOffset),
-      y: centerY + Math.sin(angle) * (radius - typeOffset / 2),
+      x: node.type === "mitre_technique" ? centerX + layout.xOffset : centerX + layout.xOffset + Math.cos(angle) * (radius + collisionOffset),
+      y: node.type === "mitre_technique" ? mitreY : centerY + Math.sin(angle) * (radius * layout.yScale + collisionOffset),
     };
+  });
+}
+
+function graphNeighbors(nodeId, edges) {
+  const related = new Set([nodeId]);
+  edges.forEach((edge) => {
+    if (edge.source === nodeId) related.add(edge.target);
+    if (edge.target === nodeId) related.add(edge.source);
+  });
+  return related;
+}
+
+function shouldShowGraphLabel(node, selectedNode, hoveredNodeId, zoom, showAllLabels) {
+  if (showAllLabels) return true;
+  if (selectedNode?.id === node.id) return true;
+  if (hoveredNodeId === node.id) return true;
+  if (node.severity === "critical") return true;
+  if (zoom >= 135 && !["event", "alert", "cluster_member"].includes(node.type)) return true;
+  return false;
+}
+
+function graphNodeRadius(node) {
+  const count = Number(node.metadata?.count ?? 0);
+  const clusterBoost = count > 0 ? Math.min(12, Math.log2(count + 1) * 4) : 0;
+  const riskBoost = node.risk_score >= 70 || ["high", "critical"].includes(node.severity) ? 5 : 0;
+  const base = ["event_cluster", "alert_cluster"].includes(node.type) ? 20 : 17;
+  return base + clusterBoost + riskBoost;
+}
+
+function deduplicateGraphNodes(nodes) {
+  return Array.from(new Map(nodes.map((node) => [node.id, node])).values());
+}
+
+function expandGraphClusters(nodes, edges, expandedClusterIds) {
+  const expandedNodes = [...nodes];
+  const expandedEdges = [...edges];
+
+  nodes.forEach((node) => {
+    if (!expandedClusterIds.includes(node.id)) return;
+    const eventIds = node.metadata?.sample_event_ids ?? [];
+    const alertIds = node.metadata?.sample_alert_ids ?? [];
+    eventIds.slice(0, 8).forEach((eventId) => {
+      const childId = `${node.id}:event:${eventId}`;
+      expandedNodes.push({
+        id: childId,
+        label: `Event ${eventId}`,
+        type: "cluster_member",
+        severity: node.severity,
+        risk_score: Math.max(0, Number(node.risk_score ?? 0) - 10),
+        metadata: { id: eventId, parent_cluster: node.id, member_type: "event" },
+      });
+      expandedEdges.push({ id: `edge:${node.id}-${childId}`, source: node.id, target: childId, relationship: "contains" });
+    });
+    alertIds.slice(0, 8).forEach((alertId) => {
+      const childId = `${node.id}:alert:${alertId}`;
+      expandedNodes.push({
+        id: childId,
+        label: `Alert ${alertId}`,
+        type: "cluster_member",
+        severity: node.severity,
+        risk_score: Math.max(0, Number(node.risk_score ?? 0) - 5),
+        metadata: { id: alertId, parent_cluster: node.id, member_type: "alert" },
+      });
+      expandedEdges.push({ id: `edge:${node.id}-${childId}`, source: node.id, target: childId, relationship: "contains" });
+    });
+  });
+
+  return { nodes: deduplicateGraphNodes(expandedNodes), edges: expandedEdges };
+}
+
+function normalizeGraphEdges(edges, nodes, edgeVisibility) {
+  const nodeById = Object.fromEntries(nodes.map((node) => [node.id, node]));
+  const threshold = Number(edgeVisibility ?? 0);
+  return edges.filter((edge) => {
+    const source = nodeById[edge.source];
+    const target = nodeById[edge.target];
+    if (!source || !target) return false;
+    if (threshold <= 0) return true;
+    return Math.max(Number(source.risk_score ?? 0), Number(target.risk_score ?? 0)) >= threshold;
   });
 }
 
@@ -833,18 +949,30 @@ function GraphInvestigationPanel({
   graphStatus,
   graphError,
   graphFilters,
+  graphControls,
   selectedNode,
+  hoveredNodeId,
+  expandedClusterIds,
   zoom,
   onFilterChange,
+  onControlChange,
   onRefresh,
   onNodeSelect,
+  onNodeHover,
+  onToggleCluster,
   onAnalyzeNode,
   onZoomChange,
   canOperate,
 }) {
-  const nodes = layoutGraph(graphData?.nodes ?? []);
+  const expandedGraph = expandGraphClusters(deduplicateGraphNodes(graphData?.nodes ?? []), graphData?.edges ?? [], expandedClusterIds);
+  const edges = normalizeGraphEdges(expandedGraph.edges, expandedGraph.nodes, graphControls.edgeVisibility);
+  const nodes = layoutGraph(expandedGraph.nodes, graphControls.physicsEnabled);
   const nodeById = Object.fromEntries(nodes.map((node) => [node.id, node]));
-  const edges = graphData?.edges ?? [];
+  const summary = graphData?.summary ?? {};
+  const focusedNodeIds = selectedNode ? graphNeighbors(selectedNode.id, edges) : null;
+  const topSources = summary.top_source_ips ?? [];
+  const topTechniques = summary.top_techniques ?? [];
+  const connectedAssets = summary.most_connected_assets ?? [];
 
   return (
     <section className="graph-panel">
@@ -878,11 +1006,53 @@ function GraphInvestigationPanel({
           </select>
         </label>
         <label>
-          <span>Limit</span>
+          <span>Node type</span>
+          <select value={graphFilters.node_type} onChange={(event) => onFilterChange("node_type", event.target.value)}>
+            <option value="">Any node type</option>
+            <option value="asset">asset</option>
+            <option value="user">user</option>
+            <option value="source_ip">source_ip</option>
+            <option value="destination_ip">destination_ip</option>
+            <option value="process">process</option>
+            <option value="event_cluster">event_cluster</option>
+            <option value="alert_cluster">alert_cluster</option>
+            <option value="incident">incident</option>
+            <option value="mitre_technique">mitre_technique</option>
+          </select>
+        </label>
+        <label>
+          <span>MITRE tactic</span>
+          <input
+            value={graphFilters.mitre_tactic}
+            onChange={(event) => onFilterChange("mitre_tactic", event.target.value)}
+            placeholder="Any tactic"
+          />
+        </label>
+        <label>
+          <span>Hostname</span>
+          <input
+            value={graphFilters.hostname}
+            onChange={(event) => onFilterChange("hostname", event.target.value)}
+            placeholder="Any host"
+          />
+        </label>
+        <label>
+          <span>Time window</span>
+          <select value={graphFilters.time_window} onChange={(event) => onFilterChange("time_window", event.target.value)}>
+            <option value="">All recent data</option>
+            <option value="1h">Last 1 hour</option>
+            <option value="6h">Last 6 hours</option>
+            <option value="24h">Last 24 hours</option>
+            <option value="7d">Last 7 days</option>
+            <option value="30d">Last 30 days</option>
+          </select>
+        </label>
+        <label>
+          <span>Max nodes</span>
           <input
             type="number"
             min="1"
-            max="500"
+            max="150"
             value={graphFilters.limit}
             onChange={(event) => onFilterChange("limit", event.target.value)}
           />
@@ -897,15 +1067,62 @@ function GraphInvestigationPanel({
             onChange={(event) => onZoomChange(Number(event.target.value))}
           />
         </label>
+        <label className="graph-toggle-control">
+          <span>Labels</span>
+          <button type="button" onClick={() => onControlChange("showLabels", !graphControls.showLabels)}>
+            {graphControls.showLabels ? "Labels on" : "Labels off"}
+          </button>
+        </label>
+        <label className="graph-toggle-control">
+          <span>Physics</span>
+          <button type="button" onClick={() => onControlChange("physicsEnabled", !graphControls.physicsEnabled)}>
+            {graphControls.physicsEnabled ? "Physics on" : "Physics off"}
+          </button>
+        </label>
+        <label className="graph-toggle-control">
+          <span>Cluster mode</span>
+          <button type="button" onClick={() => onFilterChange("cluster_mode", graphFilters.cluster_mode === false)}>
+            {graphFilters.cluster_mode === false ? "Raw mode" : "Clustered"}
+          </button>
+        </label>
+        <label>
+          <span>Edge visibility</span>
+          <input
+            type="range"
+            min="0"
+            max="90"
+            value={graphControls.edgeVisibility}
+            onChange={(event) => onControlChange("edgeVisibility", Number(event.target.value))}
+          />
+        </label>
       </div>
 
       {graphError && <span className="form-error">{graphError}</span>}
 
       {graphData && (
-        <div className="graph-summary">
-          <span>{graphData.summary.nodes} nodes</span>
-          <span>{graphData.summary.edges} edges</span>
-          <span>{graphData.summary.high_risk_nodes} high risk</span>
+        <div className="graph-intelligence">
+          <div className="graph-summary">
+            <span>{summary.nodes ?? 0} nodes</span>
+            <span>{edges.length} visible edges</span>
+            <span>{summary.edges ?? 0} server edges</span>
+            <span>{summary.high_risk_nodes ?? 0} high risk</span>
+            <span>{summary.high_risk_clusters ?? 0} high-risk clusters</span>
+            <span>{summary.aggregation ?? "raw"} view</span>
+          </div>
+          <div className="graph-insights">
+            <div>
+              <strong>Top source IPs</strong>
+              <p>{topSources.length ? topSources.map((item) => `${item.label} (${item.count})`).join(", ") : "No source IP concentration yet"}</p>
+            </div>
+            <div>
+              <strong>Top techniques</strong>
+              <p>{topTechniques.length ? topTechniques.map((item) => `${item.label} (${item.count})`).join(", ") : "No MITRE techniques mapped yet"}</p>
+            </div>
+            <div>
+              <strong>Most connected assets</strong>
+              <p>{connectedAssets.length ? connectedAssets.map((item) => `${item.label} (${item.count})`).join(", ") : "No asset relationships yet"}</p>
+            </div>
+          </div>
         </div>
       )}
 
@@ -924,29 +1141,51 @@ function GraphInvestigationPanel({
               if (!source || !target) return null;
               const midX = (source.x + target.x) / 2;
               const midY = (source.y + target.y) / 2;
+              const focused = !focusedNodeIds || (focusedNodeIds.has(edge.source) && focusedNodeIds.has(edge.target));
+              const showEdgeLabel = focusedNodeIds ? focused : zoom >= 135;
 
               return (
                 <g key={edge.id}>
-                  <line x1={source.x} y1={source.y} x2={target.x} y2={target.y} className="graph-edge" />
-                  <text x={midX} y={midY} className="graph-edge-label">
-                    {edge.relationship}
-                  </text>
+                  <line x1={source.x} y1={source.y} x2={target.x} y2={target.y} className={`graph-edge ${focused ? "" : "graph-dim"}`} />
+                  {showEdgeLabel && (
+                    <text x={midX} y={midY} className={`graph-edge-label ${focused ? "" : "graph-dim"}`}>
+                      {edge.relationship}
+                    </text>
+                  )}
                 </g>
               );
             })}
 
             {nodes.map((node) => {
               const highRisk = node.risk_score >= 70 || ["high", "critical"].includes(node.severity);
+              const focused = !focusedNodeIds || focusedNodeIds.has(node.id);
+              const nodeRadius = graphNodeRadius(node);
+              const isCluster = ["event_cluster", "alert_cluster"].includes(node.type);
+              const count = node.metadata?.count;
               return (
                 <g
                   key={node.id}
-                  className={`graph-node ${highRisk ? "graph-node-high" : ""}`}
-                  onClick={() => onNodeSelect(node)}
+                  className={`graph-node ${highRisk ? "graph-node-high" : ""} ${focused ? "" : "graph-dim"} ${
+                    selectedNode?.id === node.id ? "graph-node-selected" : ""
+                  } ${isCluster ? "graph-node-cluster" : ""}`}
+                  onClick={() => {
+                    onNodeSelect(node);
+                    if (isCluster) onToggleCluster(node.id);
+                  }}
+                  onMouseEnter={() => onNodeHover(node.id)}
+                  onMouseLeave={() => onNodeHover("")}
                 >
-                  <circle cx={node.x} cy={node.y} r={highRisk ? 24 : 19} fill={nodeColors[node.type] ?? "#94a3b8"} />
-                  <text x={node.x} y={node.y + 38} className="graph-node-label">
-                    {node.label}
-                  </text>
+                  <circle cx={node.x} cy={node.y} r={nodeRadius} fill={nodeColors[node.type] ?? "#94a3b8"} />
+                  {count && (
+                    <text x={node.x} y={node.y + 4} className="graph-node-count">
+                      {count}
+                    </text>
+                  )}
+                  {shouldShowGraphLabel(node, selectedNode, hoveredNodeId, zoom, graphControls.showLabels) && (
+                    <text x={node.x} y={node.y + nodeRadius + 18} className="graph-node-label">
+                      {node.label}
+                    </text>
+                  )}
                 </g>
               );
             })}
@@ -958,6 +1197,7 @@ function GraphInvestigationPanel({
                 <span className="threat-badge">{selectedNode.type}</span>
                 <h3>{selectedNode.label}</h3>
                 <p>{selectedNode.id}</p>
+                <p className="graph-focus-note">Focus mode highlights directly related graph entities.</p>
                 <div className="activity-meta">
                   <span>Risk {selectedNode.risk_score}</span>
                   <span>{selectedNode.severity}</span>
@@ -1896,8 +2136,24 @@ export default function Dashboard() {
   const [graphData, setGraphData] = useState(null);
   const [graphStatus, setGraphStatus] = useState("idle");
   const [graphError, setGraphError] = useState("");
-  const [graphFilters, setGraphFilters] = useState({ source_ip: "", severity: "", limit: "150" });
+  const [graphFilters, setGraphFilters] = useState({
+    source_ip: "",
+    severity: "",
+    node_type: "",
+    mitre_tactic: "",
+    hostname: "",
+    time_window: "",
+    limit: "150",
+    cluster_mode: true,
+  });
+  const [graphControls, setGraphControls] = useState({
+    showLabels: false,
+    physicsEnabled: false,
+    edgeVisibility: 0,
+  });
   const [selectedGraphNode, setSelectedGraphNode] = useState(null);
+  const [hoveredGraphNodeId, setHoveredGraphNodeId] = useState("");
+  const [expandedGraphClusters, setExpandedGraphClusters] = useState([]);
   const [graphZoom, setGraphZoom] = useState(100);
   const [copilotMode, setCopilotMode] = useState("alert");
   const [copilotTargetId, setCopilotTargetId] = useState("");
@@ -2049,6 +2305,14 @@ export default function Dashboard() {
       setCollectorHealthSummary({ total_collectors: 0, online: 0, stale: 0, offline: 0, revoked: 0 });
     }
   }, [currentUser?.id, isAdmin]);
+
+  useEffect(() => {
+    if (currentUser) {
+      const timer = window.setTimeout(() => loadGraph(), 350);
+      return () => window.clearTimeout(timer);
+    }
+    return undefined;
+  }, [currentUser?.id, graphFilters]);
 
   useEffect(() => {
     return () => window.clearTimeout(realtimeRefreshTimerRef.current);
@@ -2285,6 +2549,25 @@ export default function Dashboard() {
       ...currentFilters,
       [name]: value,
     }));
+    if (name === "cluster_mode") {
+      setExpandedGraphClusters([]);
+      setSelectedGraphNode(null);
+    }
+  }
+
+  function handleGraphControlChange(name, value) {
+    setGraphControls((currentControls) => ({
+      ...currentControls,
+      [name]: value,
+    }));
+  }
+
+  function handleToggleGraphCluster(clusterId) {
+    setExpandedGraphClusters((currentClusters) =>
+      currentClusters.includes(clusterId)
+        ? currentClusters.filter((id) => id !== clusterId)
+        : [...currentClusters, clusterId],
+    );
   }
 
   function buildPayload() {
@@ -3005,11 +3288,17 @@ export default function Dashboard() {
           graphStatus={graphStatus}
           graphError={graphError}
           graphFilters={graphFilters}
+          graphControls={graphControls}
           selectedNode={selectedGraphNode}
+          hoveredNodeId={hoveredGraphNodeId}
+          expandedClusterIds={expandedGraphClusters}
           zoom={graphZoom}
           onFilterChange={handleGraphFilterChange}
+          onControlChange={handleGraphControlChange}
           onRefresh={loadGraph}
           onNodeSelect={setSelectedGraphNode}
+          onNodeHover={setHoveredGraphNodeId}
+          onToggleCluster={handleToggleGraphCluster}
           onAnalyzeNode={handleAnalyzeGraphNode}
           onZoomChange={setGraphZoom}
           canOperate={canOperate}

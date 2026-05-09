@@ -1,0 +1,14 @@
+<Sysmon schemaversion="4.90">
+  <HashAlgorithms>SHA256,IMPHASH</HashAlgorithms>
+  <CheckRevocation>false</CheckRevocation>
+  <EventFiltering>
+    <ProcessCreate onmatch="include" />
+    <NetworkConnect onmatch="include" />
+    <ImageLoad onmatch="include" />
+    <FileCreate onmatch="include" />
+    <RegistryEvent onmatch="include" />
+    <DnsQuery onmatch="include" />
+    <ProcessAccess onmatch="include" />
+    <CreateRemoteThread onmatch="include" />
+  </EventFiltering>
+</Sysmon>

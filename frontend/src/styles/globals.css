@@ -712,6 +712,11 @@ body {
   padding: 9px 10px;
 }
 
+.graph-toggle-control button {
+  min-height: 42px;
+  width: 100%;
+}
+
 .graph-summary {
   display: flex;
   flex-wrap: wrap;
@@ -725,6 +730,37 @@ body {
   color: #bae6fd;
   font-size: 13px;
   padding: 4px 9px;
+}
+
+.graph-intelligence {
+  display: grid;
+  gap: 12px;
+}
+
+.graph-insights {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.graph-insights div {
+  border: 1px solid #203047;
+  border-radius: 8px;
+  background: #0d1728;
+  padding: 10px 12px;
+}
+
+.graph-insights strong {
+  color: #e5edf6;
+  display: block;
+  font-size: 13px;
+}
+
+.graph-insights p {
+  color: #93a4b8;
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 5px 0 0;
 }
 
 .graph-workspace {
@@ -751,6 +787,7 @@ body {
 .graph-edge {
   stroke: #3b4f70;
   stroke-width: 1.5;
+  transition: opacity 160ms ease, stroke 160ms ease;
 }
 
 .graph-edge-label {
@@ -764,17 +801,40 @@ body {
 
 .graph-node {
   cursor: pointer;
+  transition: opacity 160ms ease;
 }
 
 .graph-node circle {
   stroke: #e5edf6;
   stroke-width: 1.5;
+  transition: filter 160ms ease, stroke 160ms ease, stroke-width 160ms ease;
+}
+
+.graph-dim {
+  opacity: 0.18;
 }
 
 .graph-node-high circle {
   filter: drop-shadow(0 0 10px rgba(251, 113, 133, 0.65));
   stroke: #fecdd3;
   stroke-width: 3;
+}
+
+.graph-node-selected circle {
+  filter: drop-shadow(0 0 14px rgba(56, 189, 248, 0.8));
+  stroke: #38bdf8;
+  stroke-width: 4;
+}
+
+.graph-node-cluster circle {
+  stroke-dasharray: 4 3;
+}
+
+.graph-node-count {
+  fill: #0b1220;
+  font-size: 12px;
+  font-weight: 900;
+  text-anchor: middle;
 }
 
 .graph-node-label {
@@ -785,6 +845,13 @@ body {
   stroke: #0b1220;
   stroke-width: 5px;
   text-anchor: middle;
+}
+
+.graph-focus-note {
+  border-left: 3px solid #38bdf8;
+  background: #101c2f;
+  border-radius: 6px;
+  padding: 8px 10px;
 }
 
 .graph-detail {

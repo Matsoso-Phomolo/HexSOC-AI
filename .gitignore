@@ -38,6 +38,9 @@ data-pipeline/samples/*
 *.log
 logs/
 tmp/
+agent/data/*.json
+agent/data/*.jsonl
+agent/logs/*.log
 
 # OS and editor files
 .DS_Store

@@ -15,15 +15,29 @@ router = APIRouter()
 def get_investigation_graph(
     source_ip: str | None = Query(default=None),
     severity: str | None = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=500),
+    node_type: str | None = Query(default=None),
+    mitre_tactic: str | None = Query(default=None),
+    hostname: str | None = Query(default=None),
+    time_window: str | None = Query(default=None),
+    aggregate: bool = Query(default=True),
+    limit: int = Query(default=150, ge=1, le=500),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """Return graph-ready SOC relationships for analyst investigation."""
     normalized_source_ip = source_ip.strip() if source_ip and source_ip.strip() else None
     normalized_severity = severity.strip().lower() if severity and severity.strip() else None
+    normalized_node_type = node_type.strip() if node_type and node_type.strip() else None
+    normalized_mitre_tactic = mitre_tactic.strip() if mitre_tactic and mitre_tactic.strip() else None
+    normalized_hostname = hostname.strip() if hostname and hostname.strip() else None
+    normalized_time_window = time_window.strip().lower() if time_window and time_window.strip() else None
     return build_investigation_graph(
         db,
         source_ip=normalized_source_ip,
         severity=normalized_severity,
+        node_type=normalized_node_type,
+        mitre_tactic=normalized_mitre_tactic,
+        hostname=normalized_hostname,
+        time_window=normalized_time_window,
+        aggregate=aggregate,
         limit=limit,
     )

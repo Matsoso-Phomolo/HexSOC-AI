@@ -8,5 +8,20 @@
   "heartbeat_interval_seconds": 60,
   "telemetry_interval_seconds": 60,
   "retry_delay_seconds": 10,
+  "offline_queue_enabled": true,
+  "offline_queue_path": "data/offline_queue.jsonl",
+  "max_retry_attempts": 10,
+  "agent_state_path": "data/agent_state.json",
+  "deduplicate_events": true,
+  "fingerprint_history_limit": 5000,
+  "windows_event_channels": [
+    "Security",
+    "System",
+    "Application",
+    "Microsoft-Windows-Sysmon/Operational"
+  ],
+  "windows_event_batch_size": 50,
+  "windows_event_max_per_cycle": 200,
+  "windows_event_start_position": "latest",
   "send_events_on_interval": true
 }

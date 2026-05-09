@@ -1,1 +1,2 @@
-# HexSOC Agent currently uses only the Python standard library.
+python-dotenv
+colorama
