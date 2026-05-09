@@ -206,6 +206,13 @@ const sampleWindowsSysmonEvents = {
   ],
 };
 
+const initialCollectorForm = {
+  name: "",
+  description: "",
+  collector_type: "sysmon",
+  source_label: "",
+};
+
 function cleanOptionalNumber(value) {
   return value === "" ? null : Number(value);
 }
@@ -1517,6 +1524,100 @@ function AdminUserManagementPanel({
   );
 }
 
+function CollectorManagementPanel({
+  collectors,
+  form,
+  state,
+  error,
+  oneTimeKey,
+  onFieldChange,
+  onCreate,
+  onRotate,
+  onRevoke,
+  onRefresh,
+  onCopyKey,
+  canOperate,
+}) {
+  return (
+    <section className="collector-panel">
+      <div className="section-heading">
+        <div>
+          <h2>Live Collectors</h2>
+          <p>Issue API keys for external agents and scripts that stream telemetry into HexSOC AI.</p>
+        </div>
+        <button type="button" disabled={state === "loading"} onClick={onRefresh}>
+          {state === "loading" ? "Refreshing..." : "Refresh Collectors"}
+        </button>
+      </div>
+
+      {oneTimeKey && (
+        <div className="collector-key-box">
+          <strong>Store this key now. It will not be shown again.</strong>
+          <code>{oneTimeKey}</code>
+          <button type="button" onClick={onCopyKey}>Copy key</button>
+        </div>
+      )}
+
+      <form className="record-form" onSubmit={onCreate}>
+        <Field label="Name" name="name" value={form.name} required onChange={onFieldChange} />
+        <Field label="Source label" name="source_label" value={form.source_label} onChange={onFieldChange} />
+        <SelectField
+          label="Collector type"
+          name="collector_type"
+          value={form.collector_type}
+          onChange={onFieldChange}
+          options={["sysmon", "windows_event", "linux_auth", "firewall", "zeek", "suricata", "custom_json"]}
+        />
+        <TextAreaField label="Description" name="description" value={form.description} onChange={onFieldChange} />
+        <div className="form-footer">
+          <button type="submit" disabled={!canOperate || state === "saving"}>
+            {state === "saving" ? "Saving..." : "Create Collector"}
+          </button>
+          {error && <span className="form-error">{error}</span>}
+        </div>
+      </form>
+
+      {collectors.length === 0 ? (
+        <p className="empty-state">No collectors configured yet.</p>
+      ) : (
+        <ul className="collector-list">
+          {collectors.map((collector) => (
+            <li key={`collector-${collector.id}`}>
+              <div>
+                <div className="record-title-row">
+                  <strong>{collector.name}</strong>
+                  <span className={`account-pill ${collector.is_active ? "account-active" : "account-inactive"}`}>
+                    {collector.revoked_at ? "revoked" : collector.is_active ? "active" : "inactive"}
+                  </span>
+                </div>
+                <p>{collector.description || "No description"}</p>
+                <div className="activity-meta">
+                  <span>{collector.collector_type}</span>
+                  <span>prefix {collector.key_prefix}</span>
+                  <span>last seen {formatDateTime(collector.last_seen_at)}</span>
+                  <span>source {collector.source_label || collector.name}</span>
+                </div>
+              </div>
+              <div className="action-row">
+                <button type="button" disabled={!canOperate || state === "saving"} onClick={() => onRotate(collector.id)}>
+                  Rotate Key
+                </button>
+                <button
+                  type="button"
+                  disabled={!canOperate || state === "saving" || Boolean(collector.revoked_at)}
+                  onClick={() => onRevoke(collector.id)}
+                >
+                  Revoke
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function CorrelationPanel({ correlationState, correlationResult, correlationError, onRun, canOperate }) {
   const chains = correlationResult?.chains ?? [];
 
@@ -1782,6 +1883,11 @@ export default function Dashboard() {
   const [adminError, setAdminError] = useState("");
   const [adminForm, setAdminForm] = useState({ full_name: "", email: "" });
   const [adminRole, setAdminRole] = useState("analyst");
+  const [collectors, setCollectors] = useState([]);
+  const [collectorForm, setCollectorForm] = useState(initialCollectorForm);
+  const [collectorState, setCollectorState] = useState("idle");
+  const [collectorError, setCollectorError] = useState("");
+  const [collectorOneTimeKey, setCollectorOneTimeKey] = useState("");
   const [liveNotice, setLiveNotice] = useState("");
 
   const realtimeStatus = useRealtimeAlerts({ onMessage: handleRealtimeMessage });
@@ -1859,10 +1965,12 @@ export default function Dashboard() {
   useEffect(() => {
     if (isAdmin) {
       loadAdminUsers();
+      loadCollectors();
     } else {
       setAdminUsers([]);
       setSelectedAdminUserId("");
       setAdminUserDetail(null);
+      setCollectors([]);
     }
   }, [isAdmin]);
 
@@ -1946,6 +2054,20 @@ export default function Dashboard() {
     }
   }
 
+  async function loadCollectors() {
+    if (!isAdmin) return;
+    try {
+      setCollectorState("loading");
+      setCollectorError("");
+      const result = await apiGet("/api/collectors/");
+      setCollectors(result);
+      setCollectorState("ready");
+    } catch (requestError) {
+      setCollectorError(requestError.message);
+      setCollectorState("error");
+    }
+  }
+
   async function handleRealtimeMessage(message) {
     if (message.type === "connected") return;
 
@@ -1988,6 +2110,16 @@ export default function Dashboard() {
 
     if (["user_updated", "user_role_changed", "user_deactivated", "user_activated"].includes(message.type)) {
       await refreshAdminUsers(message.user_id ? String(message.user_id) : selectedAdminUserId);
+    }
+
+    if (
+      ["collector_created", "collector_updated", "collector_revoked", "collector_ingestion_completed"].includes(
+        message.type,
+      )
+    ) {
+      await loadCollectors();
+      await refreshSlices(["events", "assets", "alerts", "activity"]);
+      await loadGraph();
     }
 
     setLiveNotice("Live update received");
@@ -2502,6 +2634,67 @@ export default function Dashboard() {
     }
   }
 
+  function handleCollectorFieldChange(name, value) {
+    setCollectorForm((currentForm) => ({ ...currentForm, [name]: value }));
+  }
+
+  async function handleCreateCollector(event) {
+    event.preventDefault();
+    if (!collectorForm.name.trim()) {
+      setCollectorError("Collector name is required.");
+      return;
+    }
+    try {
+      setCollectorState("saving");
+      setCollectorError("");
+      const response = await apiPost("/api/collectors/", {
+        ...collectorForm,
+        name: collectorForm.name.trim(),
+        description: collectorForm.description.trim() || null,
+        source_label: collectorForm.source_label.trim() || null,
+      });
+      setCollectorOneTimeKey(response.api_key);
+      setCollectorForm(initialCollectorForm);
+      await Promise.all([loadCollectors(), refreshSlices(["activity"])]);
+      setCollectorState("ready");
+    } catch (requestError) {
+      setCollectorError(requestError.message);
+      setCollectorState("error");
+    }
+  }
+
+  async function handleRotateCollector(collectorId) {
+    try {
+      setCollectorState("saving");
+      setCollectorError("");
+      const response = await apiPost(`/api/collectors/${collectorId}/rotate`, {});
+      setCollectorOneTimeKey(response.api_key);
+      await Promise.all([loadCollectors(), refreshSlices(["activity"])]);
+      setCollectorState("ready");
+    } catch (requestError) {
+      setCollectorError(requestError.message);
+      setCollectorState("error");
+    }
+  }
+
+  async function handleRevokeCollector(collectorId) {
+    try {
+      setCollectorState("saving");
+      setCollectorError("");
+      await apiPost(`/api/collectors/${collectorId}/revoke`, {});
+      await Promise.all([loadCollectors(), refreshSlices(["activity"])]);
+      setCollectorState("ready");
+    } catch (requestError) {
+      setCollectorError(requestError.message);
+      setCollectorState("error");
+    }
+  }
+
+  async function handleCopyCollectorKey() {
+    if (!collectorOneTimeKey) return;
+    await navigator.clipboard.writeText(collectorOneTimeKey);
+  }
+
   function handleAuthFieldChange(name, value) {
     setAuthForm((currentForm) => ({ ...currentForm, [name]: value }));
   }
@@ -2760,6 +2953,23 @@ export default function Dashboard() {
           onActivate={handleAdminActivateUser}
           onDeactivate={handleAdminDeactivateUser}
           onRefresh={loadAdminUsers}
+        />
+      )}
+
+      {status === "ready" && isAdmin && (
+        <CollectorManagementPanel
+          collectors={collectors}
+          form={collectorForm}
+          state={collectorState}
+          error={collectorError}
+          oneTimeKey={collectorOneTimeKey}
+          onFieldChange={handleCollectorFieldChange}
+          onCreate={handleCreateCollector}
+          onRotate={handleRotateCollector}
+          onRevoke={handleRevokeCollector}
+          onRefresh={loadCollectors}
+          onCopyKey={handleCopyCollectorKey}
+          canOperate={isAdmin}
         />
       )}
 

@@ -102,3 +102,48 @@ Demo seeding API:
 - Production: requires `DEMO_SEED_TOKEN` in the backend environment and the request header `X-Demo-Seed-Token`
 
 The seeder is idempotent and skips demo records that already exist.
+
+## Live Collector API Keys
+
+HexSOC AI supports API-key authenticated collectors for external agents and scripts. Collector keys are for machines, not analysts.
+
+Create a collector:
+
+1. Login as an admin.
+2. Open `Live Collectors`.
+3. Create a collector with a name, type, and source label.
+4. Copy the raw API key immediately. It is shown only once.
+
+Collector security:
+
+- Raw collector API keys are never stored.
+- Only a hashed key and short prefix are stored.
+- Rotate a key if it may have been exposed.
+- Revoke a collector when it should no longer ingest telemetry.
+
+Ingest normalized JSON with curl:
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:9000/api/collectors/ingest/events/bulk?auto_detect=true" `
+  -H "Content-Type: application/json" `
+  -H "X-HexSOC-API-Key: <collector_api_key>" `
+  --data-binary "@backend/samples/sysmon_sample_events.json"
+```
+
+Ingest Windows/Sysmon JSON with curl:
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:9000/api/collectors/ingest/windows-events/bulk?auto_detect=true" `
+  -H "Content-Type: application/json" `
+  -H "X-HexSOC-API-Key: <collector_api_key>" `
+  --data-binary "@backend/samples/windows_sysmon_sample.json"
+```
+
+Run the sample collector script:
+
+```powershell
+cd "C:\Users\windows 10\Desktop\Workshop\hexsoc-ai\backend"
+$env:COLLECTOR_API_KEY="<collector_api_key>"
+$env:HEXSOC_BACKEND_URL="http://127.0.0.1:9000"
+python scripts\send_sample_collector_logs.py
+```

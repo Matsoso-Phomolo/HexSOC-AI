@@ -139,6 +139,25 @@ class LoginAudit(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class Collector(Base):
+    """External telemetry collector authenticated by a hashed API key."""
+
+    __tablename__ = "collectors"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(160), nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    api_key_hash = Column(String(128), nullable=False, index=True)
+    key_prefix = Column(String(32), nullable=False, index=True)
+    collector_type = Column(String(80), nullable=False, default="custom_json", index=True)
+    source_label = Column(String(120), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True, index=True)
+    last_seen_at = Column(DateTime(timezone=True), nullable=True)
+    created_by = Column(String(120), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+
+
 class CaseNote(Base):
     """Analyst note attached to an incident case."""
 
