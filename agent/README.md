@@ -25,7 +25,10 @@ Copy-Item config.example.json config.json
   "collector_api_key": "PUT_COLLECTOR_KEY_HERE",
   "mode": "windows_sysmon_sample",
   "batch_size": 10,
-  "auto_detect": true
+  "auto_detect": true,
+  "agent_version": "0.1.0",
+  "heartbeat_interval_seconds": 60,
+  "send_events_on_interval": false
 }
 ```
 
@@ -50,6 +53,14 @@ Send the sample Windows/Sysmon telemetry once:
 ```powershell
 python hexsoc_agent.py --config config.json --once
 ```
+
+Run continuously with heartbeat monitoring:
+
+```powershell
+python hexsoc_agent.py --config config.json --interval 60
+```
+
+Set `"send_events_on_interval": true` if you want the prototype to send the sample telemetry on each interval.
 
 Use a custom events file:
 

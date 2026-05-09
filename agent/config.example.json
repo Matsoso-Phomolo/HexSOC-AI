@@ -3,5 +3,8 @@
   "collector_api_key": "PUT_COLLECTOR_KEY_HERE",
   "mode": "windows_sysmon_sample",
   "batch_size": 10,
-  "auto_detect": true
+  "auto_detect": true,
+  "agent_version": "0.1.0",
+  "heartbeat_interval_seconds": 60,
+  "send_events_on_interval": false
 }

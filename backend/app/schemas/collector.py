@@ -35,6 +35,15 @@ class CollectorRead(BaseModel):
     source_label: str | None = None
     is_active: bool
     last_seen_at: datetime | None = None
+    agent_version: str | None = None
+    host_name: str | None = None
+    os_name: str | None = None
+    os_version: str | None = None
+    last_event_count: int | None = None
+    last_error: str | None = None
+    heartbeat_count: int = 0
+    last_heartbeat_at: datetime | None = None
+    health_status: str = "offline"
     created_by: str | None = None
     created_at: datetime
     revoked_at: datetime | None = None
@@ -63,3 +72,28 @@ class CollectorHeartbeatResponse(BaseModel):
     collector_type: str
     status: str
     last_seen_at: datetime | None = None
+    last_heartbeat_at: datetime | None = None
+    heartbeat_count: int = 0
+    health_status: str = "online"
+
+
+class CollectorHeartbeatRequest(BaseModel):
+    """Optional health payload sent by live agents."""
+
+    agent_version: str | None = None
+    host_name: str | None = None
+    os_name: str | None = None
+    os_version: str | None = None
+    last_event_count: int | None = None
+    last_error: str | None = None
+
+
+class CollectorHealthSummary(BaseModel):
+    """Fleet health response for live collectors."""
+
+    total_collectors: int
+    online: int
+    stale: int
+    offline: int
+    revoked: int
+    collectors: list[CollectorRead]

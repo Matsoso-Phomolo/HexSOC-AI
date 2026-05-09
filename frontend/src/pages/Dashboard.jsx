@@ -246,6 +246,17 @@ function formatDateTime(value) {
   }).format(new Date(value));
 }
 
+function formatRelativeAge(value) {
+  if (!value) return "No heartbeat";
+  const seconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000));
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
 function countryFlag(country) {
   if (!country) return "N/A";
 
@@ -1526,6 +1537,7 @@ function AdminUserManagementPanel({
 
 function CollectorManagementPanel({
   collectors,
+  healthSummary,
   form,
   state,
   error,
@@ -1536,19 +1548,33 @@ function CollectorManagementPanel({
   onRevoke,
   onRefresh,
   onCopyKey,
-  canOperate,
+  canCreate,
+  canAdmin,
 }) {
+  const hasUnhealthyCollectors = (healthSummary?.stale ?? 0) > 0 || (healthSummary?.offline ?? 0) > 0;
+
   return (
     <section className="collector-panel">
       <div className="section-heading">
         <div>
           <h2>Live Collectors</h2>
-          <p>Issue API keys for external agents and scripts that stream telemetry into HexSOC AI.</p>
+          <p>Monitor live agent health and issue API keys for telemetry collectors.</p>
         </div>
         <button type="button" disabled={state === "loading"} onClick={onRefresh}>
-          {state === "loading" ? "Refreshing..." : "Refresh Collectors"}
+          {state === "loading" ? "Refreshing..." : "Refresh Health"}
         </button>
       </div>
+
+      <div className="collector-health-summary">
+        <div><span>Online</span><strong>{healthSummary?.online ?? 0}</strong></div>
+        <div><span>Stale</span><strong>{healthSummary?.stale ?? 0}</strong></div>
+        <div><span>Offline</span><strong>{healthSummary?.offline ?? 0}</strong></div>
+        <div><span>Revoked</span><strong>{healthSummary?.revoked ?? 0}</strong></div>
+      </div>
+
+      {hasUnhealthyCollectors && (
+        <div className="collector-warning">Some collectors are not reporting telemetry.</div>
+      )}
 
       {oneTimeKey && (
         <div className="collector-key-box">
@@ -1570,7 +1596,7 @@ function CollectorManagementPanel({
         />
         <TextAreaField label="Description" name="description" value={form.description} onChange={onFieldChange} />
         <div className="form-footer">
-          <button type="submit" disabled={!canOperate || state === "saving"}>
+          <button type="submit" disabled={!canCreate || state === "saving"}>
             {state === "saving" ? "Saving..." : "Create Collector"}
           </button>
           {error && <span className="form-error">{error}</span>}
@@ -1586,25 +1612,35 @@ function CollectorManagementPanel({
               <div>
                 <div className="record-title-row">
                   <strong>{collector.name}</strong>
-                  <span className={`account-pill ${collector.is_active ? "account-active" : "account-inactive"}`}>
-                    {collector.revoked_at ? "revoked" : collector.is_active ? "active" : "inactive"}
+                  <span className={`collector-health-pill collector-health-${collector.health_status ?? "offline"}`}>
+                    {collector.health_status ?? "offline"}
                   </span>
                 </div>
                 <p>{collector.description || "No description"}</p>
                 <div className="activity-meta">
                   <span>{collector.collector_type}</span>
                   <span>prefix {collector.key_prefix}</span>
-                  <span>last seen {formatDateTime(collector.last_seen_at)}</span>
+                  <span>heartbeat {formatRelativeAge(collector.last_heartbeat_at)}</span>
+                  <span>count {collector.heartbeat_count ?? 0}</span>
                   <span>source {collector.source_label || collector.name}</span>
                 </div>
+                <div className="collector-health-grid">
+                  <span>Agent <strong>{collector.agent_version || "unknown"}</strong></span>
+                  <span>Host <strong>{collector.host_name || "unknown"}</strong></span>
+                  <span>OS <strong>{[collector.os_name, collector.os_version].filter(Boolean).join(" ") || "unknown"}</strong></span>
+                  <span>Last events <strong>{collector.last_event_count ?? 0}</strong></span>
+                  <span>Last heartbeat <strong>{formatDateTime(collector.last_heartbeat_at)}</strong></span>
+                  <span>Last seen <strong>{formatDateTime(collector.last_seen_at)}</strong></span>
+                </div>
+                {collector.last_error && <p className="collector-error">Last error: {collector.last_error}</p>}
               </div>
               <div className="action-row">
-                <button type="button" disabled={!canOperate || state === "saving"} onClick={() => onRotate(collector.id)}>
+                <button type="button" disabled={!canAdmin || state === "saving"} onClick={() => onRotate(collector.id)}>
                   Rotate Key
                 </button>
                 <button
                   type="button"
-                  disabled={!canOperate || state === "saving" || Boolean(collector.revoked_at)}
+                  disabled={!canAdmin || state === "saving" || Boolean(collector.revoked_at)}
                   onClick={() => onRevoke(collector.id)}
                 >
                   Revoke
@@ -1884,6 +1920,13 @@ export default function Dashboard() {
   const [adminForm, setAdminForm] = useState({ full_name: "", email: "" });
   const [adminRole, setAdminRole] = useState("analyst");
   const [collectors, setCollectors] = useState([]);
+  const [collectorHealthSummary, setCollectorHealthSummary] = useState({
+    total_collectors: 0,
+    online: 0,
+    stale: 0,
+    offline: 0,
+    revoked: 0,
+  });
   const [collectorForm, setCollectorForm] = useState(initialCollectorForm);
   const [collectorState, setCollectorState] = useState("idle");
   const [collectorError, setCollectorError] = useState("");
@@ -1963,16 +2006,21 @@ export default function Dashboard() {
   }, [selectedCaseId]);
 
   useEffect(() => {
+    if (currentUser) {
+      loadCollectors();
+    }
     if (isAdmin) {
       loadAdminUsers();
-      loadCollectors();
     } else {
       setAdminUsers([]);
       setSelectedAdminUserId("");
       setAdminUserDetail(null);
-      setCollectors([]);
     }
-  }, [isAdmin]);
+    if (!currentUser) {
+      setCollectors([]);
+      setCollectorHealthSummary({ total_collectors: 0, online: 0, stale: 0, offline: 0, revoked: 0 });
+    }
+  }, [currentUser?.id, isAdmin]);
 
   useEffect(() => {
     if (isAdmin && selectedAdminUserId) {
@@ -2055,12 +2103,19 @@ export default function Dashboard() {
   }
 
   async function loadCollectors() {
-    if (!isAdmin) return;
+    if (!currentUser) return;
     try {
       setCollectorState("loading");
       setCollectorError("");
-      const result = await apiGet("/api/collectors/");
-      setCollectors(result);
+      const result = await apiGet("/api/collectors/health");
+      setCollectors(result.collectors ?? []);
+      setCollectorHealthSummary({
+        total_collectors: result.total_collectors ?? 0,
+        online: result.online ?? 0,
+        stale: result.stale ?? 0,
+        offline: result.offline ?? 0,
+        revoked: result.revoked ?? 0,
+      });
       setCollectorState("ready");
     } catch (requestError) {
       setCollectorError(requestError.message);
@@ -2113,9 +2168,14 @@ export default function Dashboard() {
     }
 
     if (
-      ["collector_created", "collector_updated", "collector_revoked", "collector_ingestion_completed"].includes(
-        message.type,
-      )
+      [
+        "collector_created",
+        "collector_updated",
+        "collector_revoked",
+        "collector_ingestion_completed",
+        "collector_heartbeat",
+        "collector_health_changed",
+      ].includes(message.type)
     ) {
       await loadCollectors();
       await refreshSlices(["events", "assets", "alerts", "activity"]);
@@ -2956,9 +3016,10 @@ export default function Dashboard() {
         />
       )}
 
-      {status === "ready" && isAdmin && (
+      {status === "ready" && currentUser && (
         <CollectorManagementPanel
           collectors={collectors}
+          healthSummary={collectorHealthSummary}
           form={collectorForm}
           state={collectorState}
           error={collectorError}
@@ -2969,7 +3030,8 @@ export default function Dashboard() {
           onRevoke={handleRevokeCollector}
           onRefresh={loadCollectors}
           onCopyKey={handleCopyCollectorKey}
-          canOperate={isAdmin}
+          canCreate={canOperate}
+          canAdmin={isAdmin}
         />
       )}
 

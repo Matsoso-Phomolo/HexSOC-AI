@@ -1,5 +1,6 @@
 """Collector management and API-key authenticated ingestion routes."""
 
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
@@ -10,6 +11,8 @@ from app.db import models
 from app.schemas.collector import (
     CollectorCreate,
     CollectorCreatedResponse,
+    CollectorHealthSummary,
+    CollectorHeartbeatRequest,
     CollectorHeartbeatResponse,
     CollectorRead,
     CollectorRotateResponse,
@@ -19,8 +22,10 @@ from app.schemas.ingestion import BulkIngestRequest, BulkIngestResponse, IngestL
 from app.services.activity_service import add_activity
 from app.services.auth_service import require_role
 from app.services.collector_service import (
+    calculate_health_status,
     create_collector,
     get_collector_from_key,
+    refresh_collector_health,
     revoke_collector,
     rotate_collector_key,
 )
@@ -34,25 +39,89 @@ router = APIRouter()
 
 @router.post("/heartbeat", response_model=CollectorHeartbeatResponse, summary="Collector heartbeat")
 async def collector_heartbeat(
+    payload: CollectorHeartbeatRequest | None = None,
     api_key: str | None = Header(default=None, alias="X-HexSOC-API-Key"),
     db: Session = Depends(get_db),
 ) -> CollectorHeartbeatResponse:
     collector = get_collector_from_key(db, api_key)
+    heartbeat = payload or CollectorHeartbeatRequest()
+    previous_status = collector.health_status or "offline"
+    now = datetime.now(timezone.utc)
+    collector.last_seen_at = now
+    collector.last_heartbeat_at = now
+    collector.heartbeat_count = (collector.heartbeat_count or 0) + 1
+    collector.health_status = "online"
+    if heartbeat.agent_version is not None:
+        collector.agent_version = heartbeat.agent_version
+    if heartbeat.host_name is not None:
+        collector.host_name = heartbeat.host_name
+    if heartbeat.os_name is not None:
+        collector.os_name = heartbeat.os_name
+    if heartbeat.os_version is not None:
+        collector.os_version = heartbeat.os_version
+    if heartbeat.last_event_count is not None:
+        collector.last_event_count = heartbeat.last_event_count
+    if "last_error" in heartbeat.model_fields_set:
+        collector.last_error = heartbeat.last_error
+    activity = add_activity(
+        db,
+        action="collector_heartbeat_received",
+        entity_type="collector",
+        entity_id=collector.id,
+        message=f"Heartbeat received from collector {collector.name}.",
+        severity="info",
+        actor_username=collector.name,
+        actor_role="collector",
+    )
+    status_activity = None
+    if previous_status != collector.health_status:
+        status_activity = add_activity(
+            db,
+            action="collector_health_changed",
+            entity_type="collector",
+            entity_id=collector.id,
+            message=f"Collector {collector.name} changed health from {previous_status} to {collector.health_status}.",
+            severity="warning" if collector.health_status in {"stale", "offline"} else "info",
+            actor_username=collector.name,
+            actor_role="collector",
+        )
     db.commit()
     db.refresh(collector)
+    db.refresh(activity)
+    if status_activity is not None:
+        db.refresh(status_activity)
+    await websocket_manager.broadcast_activity({"type": "activity_created", "activity": serialize_activity(activity)})
+    if status_activity is not None:
+        await websocket_manager.broadcast_activity(
+            {"type": "activity_created", "activity": serialize_activity(status_activity)}
+        )
     await websocket_manager.broadcast_activity(
         {
-            "type": "collector_updated",
+            "type": "collector_heartbeat",
             "collector_id": collector.id,
             "collector_name": collector.name,
-            "is_active": collector.is_active,
+            "health_status": collector.health_status,
+            "heartbeat_count": collector.heartbeat_count,
+            "last_heartbeat_at": collector.last_heartbeat_at.isoformat() if collector.last_heartbeat_at else None,
         }
     )
+    if previous_status != collector.health_status:
+        await websocket_manager.broadcast_activity(
+            {
+                "type": "collector_health_changed",
+                "collector_id": collector.id,
+                "collector_name": collector.name,
+                "health_status": collector.health_status,
+            }
+        )
     return CollectorHeartbeatResponse(
         collector_name=collector.name,
         collector_type=collector.collector_type,
         status="online",
         last_seen_at=collector.last_seen_at,
+        last_heartbeat_at=collector.last_heartbeat_at,
+        heartbeat_count=collector.heartbeat_count or 0,
+        health_status=collector.health_status,
     )
 
 
@@ -112,7 +181,30 @@ def list_collectors(
     db: Session = Depends(get_db),
     _: models.User = Depends(require_role("analyst")),
 ) -> list[models.Collector]:
-    return db.query(models.Collector).order_by(models.Collector.id.desc()).all()
+    collectors = db.query(models.Collector).order_by(models.Collector.id.desc()).all()
+    _refresh_health_batch(db, collectors)
+    return collectors
+
+
+@router.get("/health", response_model=CollectorHealthSummary, summary="Collector fleet health")
+def collector_health(
+    db: Session = Depends(get_db),
+    _: models.User = Depends(require_role("admin", "analyst", "viewer")),
+) -> CollectorHealthSummary:
+    collectors = db.query(models.Collector).order_by(models.Collector.id.desc()).all()
+    _refresh_health_batch(db, collectors)
+    counts = {"online": 0, "stale": 0, "offline": 0, "revoked": 0}
+    for collector in collectors:
+        status_key = collector.health_status or calculate_health_status(collector)
+        counts[status_key if status_key in counts else "offline"] += 1
+    return CollectorHealthSummary(
+        total_collectors=len(collectors),
+        online=counts["online"],
+        stale=counts["stale"],
+        offline=counts["offline"],
+        revoked=counts["revoked"],
+        collectors=collectors,
+    )
 
 
 @router.post("/", response_model=CollectorCreatedResponse, status_code=201, summary="Create collector")
@@ -239,6 +331,9 @@ async def _collector_ingest(
         activity_action="collector_bulk_ingestion_completed" if len(tagged_logs) > 1 else "collector_event_ingested",
         activity_message=f"Collector {collector.name} ingested {len(tagged_logs)} event(s).",
     )
+    collector.last_event_count = result["ingested"]
+    collector.last_error = None if result["skipped"] == 0 else f"{result['skipped']} event(s) skipped"
+    db.add(collector)
     activity = result.pop("_activity")
     detection_summary: dict[str, int] | None = None
     if auto_detect and result["ingested"]:
@@ -295,6 +390,28 @@ def _get_collector_or_404(db: Session, collector_id: int) -> models.Collector:
     if collector is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collector not found")
     return collector
+
+
+def _refresh_health_batch(db: Session, collectors: list[models.Collector]) -> None:
+    changed = False
+    now = datetime.now(timezone.utc)
+    for collector in collectors:
+        old_status, new_status = refresh_collector_health(collector, now=now)
+        if old_status != new_status:
+            changed = True
+            add_activity(
+                db,
+                action="collector_health_changed",
+                entity_type="collector",
+                entity_id=collector.id,
+                message=f"Collector {collector.name} changed health from {old_status} to {new_status}.",
+                severity="warning" if new_status in {"stale", "offline"} else "info",
+                actor_username="system",
+                actor_role="system",
+            )
+            db.add(collector)
+    if changed:
+        db.commit()
 
 
 async def _broadcast_collector(event_type: str, collector: models.Collector, activity: models.ActivityLog) -> None:

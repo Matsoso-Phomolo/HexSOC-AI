@@ -3,7 +3,7 @@
 import hashlib
 import hmac
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -11,6 +11,10 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db import models
 from app.schemas.collector import CollectorCreate
+
+
+ONLINE_WINDOW = timedelta(minutes=5)
+OFFLINE_WINDOW = timedelta(minutes=30)
 
 
 def generate_api_key() -> tuple[str, str]:
@@ -41,6 +45,8 @@ def create_collector(db: Session, payload: CollectorCreate, created_by: str | No
         collector_type=(payload.collector_type or "custom_json").strip(),
         source_label=(payload.source_label or "").strip() or None,
         is_active=True,
+        heartbeat_count=0,
+        health_status="offline",
         created_by=created_by,
     )
     db.add(collector)
@@ -63,6 +69,7 @@ def revoke_collector(db: Session, collector: models.Collector) -> models.Collect
     """Revoke a collector key."""
     collector.is_active = False
     collector.revoked_at = datetime.now(timezone.utc)
+    collector.health_status = "revoked"
     db.add(collector)
     return collector
 
@@ -85,3 +92,30 @@ def get_collector_from_key(db: Session, api_key: str | None) -> models.Collector
     collector.last_seen_at = datetime.now(timezone.utc)
     db.add(collector)
     return collector
+
+
+def calculate_health_status(collector: models.Collector, now: datetime | None = None) -> str:
+    """Calculate collector health from heartbeat recency and revocation state."""
+    if not collector.is_active or collector.revoked_at is not None:
+        return "revoked"
+    if collector.last_heartbeat_at is None:
+        return "offline"
+
+    current_time = now or datetime.now(timezone.utc)
+    last_heartbeat = collector.last_heartbeat_at
+    if last_heartbeat.tzinfo is None:
+        last_heartbeat = last_heartbeat.replace(tzinfo=timezone.utc)
+    age = current_time - last_heartbeat
+    if age <= ONLINE_WINDOW:
+        return "online"
+    if age <= OFFLINE_WINDOW:
+        return "stale"
+    return "offline"
+
+
+def refresh_collector_health(collector: models.Collector, now: datetime | None = None) -> tuple[str, str]:
+    """Update a collector health status and return old/new status."""
+    old_status = collector.health_status or "offline"
+    new_status = calculate_health_status(collector, now=now)
+    collector.health_status = new_status
+    return old_status, new_status
