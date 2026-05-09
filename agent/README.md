@@ -28,7 +28,9 @@ Copy-Item config.example.json config.json
   "auto_detect": true,
   "agent_version": "0.1.0",
   "heartbeat_interval_seconds": 60,
-  "send_events_on_interval": false
+  "telemetry_interval_seconds": 60,
+  "retry_delay_seconds": 10,
+  "send_events_on_interval": true
 }
 ```
 
@@ -60,7 +62,26 @@ Run continuously with heartbeat monitoring:
 python hexsoc_agent.py --config config.json --interval 60
 ```
 
-Set `"send_events_on_interval": true` if you want the prototype to send the sample telemetry on each interval.
+Continuous mode runs until `Ctrl+C` and repeats:
+
+1. Send heartbeat.
+2. Ingest Windows/Sysmon telemetry batches.
+3. Send post-ingestion heartbeat.
+4. Sleep for the configured interval.
+
+Heartbeat-only service mode:
+
+```powershell
+python hexsoc_agent.py --config config.json --heartbeat-loop --interval 60
+```
+
+Telemetry-only service mode:
+
+```powershell
+python hexsoc_agent.py --config config.json --telemetry-only --interval 60
+```
+
+Temporary network failures are logged and retried on the next cycle instead of stopping the agent.
 
 Use a custom events file:
 

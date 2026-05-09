@@ -164,8 +164,11 @@ cd "C:\Users\windows 10\Desktop\Workshop\hexsoc-ai\agent"
 pip install -r requirements.txt
 python hexsoc_agent.py --config config.json --heartbeat-only
 python hexsoc_agent.py --config config.json --once
+python hexsoc_agent.py --config config.json --interval 60
 ```
 
 The agent sends a heartbeat to `POST /api/collectors/heartbeat`, then submits Windows/Sysmon telemetry to `/api/collectors/ingest/windows-events/bulk?auto_detect=true`. Confirm the dashboard shows new events, alert detections, activity records, and an updated collector `last_seen_at`.
+
+Long-running service mode repeats heartbeat, telemetry ingestion, post-ingestion heartbeat, and sleep until `Ctrl+C`. Use `--heartbeat-loop` for heartbeats only or `--telemetry-only` for ingestion without heartbeat.
 
 Collector fleet health is available at `GET /api/collectors/health`. The Live Collectors panel displays online, stale, offline, and revoked counts, along with agent version, host name, OS details, heartbeat count, last heartbeat time, last event count, and last error.

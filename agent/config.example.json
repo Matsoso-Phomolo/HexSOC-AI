@@ -6,5 +6,7 @@
   "auto_detect": true,
   "agent_version": "0.1.0",
   "heartbeat_interval_seconds": 60,
-  "send_events_on_interval": false
+  "telemetry_interval_seconds": 60,
+  "retry_delay_seconds": 10,
+  "send_events_on_interval": true
 }
