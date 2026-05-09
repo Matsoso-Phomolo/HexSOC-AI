@@ -35,6 +35,8 @@ async def create_incident(
     await websocket_manager.broadcast_activity(
         {"type": "activity_created", "activity": serialize_activity(activity)}
     )
+    await websocket_manager.broadcast_event("incident_updated", {"incident_id": incident.id, "status": incident.status})
+    await websocket_manager.broadcast_dashboard_metrics(db)
     return incident
 
 
@@ -79,4 +81,6 @@ async def update_incident_status(
     await websocket_manager.broadcast_activity(
         {"type": "activity_created", "activity": serialize_activity(activity)}
     )
+    await websocket_manager.broadcast_event("incident_updated", {"incident_id": incident.id, "status": incident.status})
+    await websocket_manager.broadcast_dashboard_metrics(db)
     return incident

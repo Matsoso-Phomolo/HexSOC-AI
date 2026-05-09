@@ -32,7 +32,7 @@ async def map_events(
     )
     db.commit()
     db.refresh(activity)
-    await _broadcast(activity)
+    await _broadcast(activity, db)
     return {"mapped_events": mapped}
 
 
@@ -55,7 +55,7 @@ async def map_alerts(
     )
     db.commit()
     db.refresh(activity)
-    await _broadcast(activity)
+    await _broadcast(activity, db)
     return {"mapped_alerts": mapped}
 
 
@@ -68,7 +68,8 @@ def get_coverage(
     return coverage_summary(db)
 
 
-async def _broadcast(activity: models.ActivityLog) -> None:
+async def _broadcast(activity: models.ActivityLog, db: Session) -> None:
     await websocket_manager.broadcast_activity({"type": "activity_created", "activity": serialize_activity(activity)})
     await websocket_manager.broadcast_activity({"type": "mitre_mapping_completed"})
     await websocket_manager.broadcast_activity({"type": "graph_updated"})
+    await websocket_manager.broadcast_dashboard_metrics(db)

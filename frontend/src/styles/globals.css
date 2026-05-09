@@ -110,9 +110,14 @@ body {
   background: #102a21;
   color: #bbf7d0;
   display: inline-flex;
+  gap: 10px;
   font-size: 13px;
   margin-top: 14px;
   padding: 8px 11px;
+}
+
+.live-toast span {
+  color: #8ee0b7;
 }
 
 .role-badge {
@@ -1142,6 +1147,13 @@ body {
   gap: 12px;
   grid-template-columns: minmax(0, 1fr) auto;
   padding-top: 12px;
+}
+
+.collector-list li.collector-live-updated {
+  background: #123524;
+  border: 1px solid #16a34a;
+  border-radius: 8px;
+  padding: 12px;
 }
 
 .collector-health-pill {

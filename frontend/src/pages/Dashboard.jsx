@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   API_BASE_URL,
@@ -1550,6 +1550,7 @@ function CollectorManagementPanel({
   onCopyKey,
   onDismissKey,
   keyCopied,
+  updatedCollectorIds,
   canCreate,
   canAdmin,
 }) {
@@ -1619,7 +1620,10 @@ function CollectorManagementPanel({
       ) : (
         <ul className="collector-list">
           {collectors.map((collector) => (
-            <li key={`collector-${collector.id}`}>
+            <li
+              key={`collector-${collector.id}`}
+              className={updatedCollectorIds.includes(collector.id) ? "collector-live-updated" : ""}
+            >
               <div>
                 <div className="record-title-row">
                   <strong>{collector.name}</strong>
@@ -1944,6 +1948,17 @@ export default function Dashboard() {
   const [collectorOneTimeKey, setCollectorOneTimeKey] = useState("");
   const [collectorKeyCopied, setCollectorKeyCopied] = useState(false);
   const [liveNotice, setLiveNotice] = useState("");
+  const [lastLiveSync, setLastLiveSync] = useState("");
+  const [updatedCollectorIds, setUpdatedCollectorIds] = useState([]);
+  const realtimeRefreshTimerRef = useRef(null);
+  const pendingRealtimeRefreshRef = useRef({
+    slices: new Set(),
+    collectors: false,
+    graph: false,
+    mitre: false,
+    adminUsers: false,
+    caseId: null,
+  });
 
   const realtimeStatus = useRealtimeAlerts({ onMessage: handleRealtimeMessage });
   const canOperate = currentUser?.role === "admin" || currentUser?.role === "analyst";
@@ -2033,6 +2048,10 @@ export default function Dashboard() {
       setCollectorHealthSummary({ total_collectors: 0, online: 0, stale: 0, offline: 0, revoked: 0 });
     }
   }, [currentUser?.id, isAdmin]);
+
+  useEffect(() => {
+    return () => window.clearTimeout(realtimeRefreshTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (isAdmin && selectedAdminUserId) {
@@ -2135,7 +2154,41 @@ export default function Dashboard() {
     }
   }
 
-  async function handleRealtimeMessage(message) {
+  function scheduleRealtimeRefresh(options = {}) {
+    const pending = pendingRealtimeRefreshRef.current;
+    (options.slices ?? []).forEach((key) => pending.slices.add(key));
+    pending.collectors = pending.collectors || Boolean(options.collectors);
+    pending.graph = pending.graph || Boolean(options.graph);
+    pending.mitre = pending.mitre || Boolean(options.mitre);
+    pending.adminUsers = pending.adminUsers || Boolean(options.adminUsers);
+    pending.caseId = options.caseId ?? pending.caseId;
+
+    window.clearTimeout(realtimeRefreshTimerRef.current);
+    realtimeRefreshTimerRef.current = window.setTimeout(async () => {
+      const refresh = pendingRealtimeRefreshRef.current;
+      pendingRealtimeRefreshRef.current = {
+        slices: new Set(),
+        collectors: false,
+        graph: false,
+        mitre: false,
+        adminUsers: false,
+        caseId: null,
+      };
+
+      const tasks = [];
+      const sliceKeys = Array.from(refresh.slices);
+      if (sliceKeys.length) tasks.push(refreshSlices(sliceKeys));
+      if (refresh.collectors) tasks.push(loadCollectors());
+      if (refresh.graph) tasks.push(loadGraph());
+      if (refresh.mitre) tasks.push(loadMitreCoverage());
+      if (refresh.adminUsers) tasks.push(refreshAdminUsers(selectedAdminUserId));
+      if (refresh.caseId) tasks.push(loadCase(refresh.caseId));
+      await Promise.all(tasks);
+      setLastLiveSync(new Date().toLocaleTimeString());
+    }, 700);
+  }
+
+  function handleRealtimeMessage(message) {
     if (message.type === "connected") return;
 
     if (message.type === "correlation_completed") {
@@ -2146,56 +2199,58 @@ export default function Dashboard() {
       });
     }
 
-    if (["graph_updated", "correlation_completed", "threat_intel_enrichment", "alert_created"].includes(message.type)) {
-      await loadGraph();
+    const collectorId = message.collector?.id ?? message.collector_id;
+    if (collectorId) {
+      setUpdatedCollectorIds((ids) => Array.from(new Set([collectorId, ...ids])).slice(0, 8));
+      window.setTimeout(() => {
+        setUpdatedCollectorIds((ids) => ids.filter((id) => id !== collectorId));
+      }, 4000);
     }
 
-    if (
-      ["event_ingested", "bulk_ingestion_completed", "windows_event_ingested", "bulk_windows_ingestion_completed"].includes(
-        message.type,
-      )
-    ) {
-      await refreshSlices(["events", "assets", "alerts", "activity"]);
-      await loadGraph();
-      await loadMitreCoverage();
+    if (["collector_heartbeat", "collector_health_changed"].includes(message.type)) {
+      scheduleRealtimeRefresh({ collectors: true });
+    }
+
+    if (["collector_created", "collector_updated", "collector_revoked"].includes(message.type)) {
+      scheduleRealtimeRefresh({ collectors: true, slices: ["activity"] });
+    }
+
+    if (["collector_ingestion_completed", "event_ingested", "bulk_ingestion_completed", "windows_event_ingested", "bulk_windows_ingestion_completed"].includes(message.type)) {
+      scheduleRealtimeRefresh({ collectors: true, slices: ["events", "assets", "alerts", "activity"], graph: true, mitre: true });
+    }
+
+    if (["alert_created", "alert_updated", "alert_status_changed"].includes(message.type)) {
+      scheduleRealtimeRefresh({ slices: ["alerts", "activity"], graph: true });
+    }
+
+    if (message.type === "activity_created") {
+      scheduleRealtimeRefresh({ slices: ["activity"] });
     }
 
     if (message.type === "mitre_mapping_completed") {
-      await Promise.all([refreshSlices(["events", "alerts", "activity"]), loadGraph(), loadMitreCoverage()]);
+      scheduleRealtimeRefresh({ slices: ["events", "alerts", "activity"], graph: true, mitre: true });
     }
 
-    if (
-      ["case_updated", "case_note_added", "case_evidence_added", "case_report_generated", "case_report_exported"].includes(
-        message.type,
-      )
-    ) {
-      await refreshSlices(["incidents", "activity"]);
-      if (selectedCaseId && Number(selectedCaseId) === message.incident_id) {
-        await loadCase(selectedCaseId);
-      }
+    if (["graph_updated", "correlation_completed", "threat_intel_enrichment"].includes(message.type)) {
+      scheduleRealtimeRefresh({ graph: true });
+    }
+
+    if (["case_updated", "case_note_added", "case_evidence_added", "case_report_generated", "case_report_exported", "incident_updated"].includes(message.type)) {
+      scheduleRealtimeRefresh({
+        slices: ["incidents", "activity"],
+        caseId: selectedCaseId && Number(selectedCaseId) === message.incident_id ? selectedCaseId : null,
+      });
     }
 
     if (["user_updated", "user_role_changed", "user_deactivated", "user_activated"].includes(message.type)) {
-      await refreshAdminUsers(message.user_id ? String(message.user_id) : selectedAdminUserId);
+      scheduleRealtimeRefresh({ adminUsers: true, slices: ["activity"] });
     }
 
-    if (
-      [
-        "collector_created",
-        "collector_updated",
-        "collector_revoked",
-        "collector_ingestion_completed",
-        "collector_heartbeat",
-        "collector_health_changed",
-      ].includes(message.type)
-    ) {
-      await loadCollectors();
-      await refreshSlices(["events", "assets", "alerts", "activity"]);
-      await loadGraph();
+    if (message.type === "dashboard_metrics_updated") {
+      scheduleRealtimeRefresh({ collectors: true, slices: ["assets", "events", "alerts", "incidents"] });
     }
 
     setLiveNotice("Live update received");
-    await refreshSlices(["alerts", "incidents", "activity"]);
   }
 
   async function loadGraph() {
@@ -2837,7 +2892,12 @@ export default function Dashboard() {
           <span className="role-badge">{currentUser.full_name} | {currentUser.role}</span>
           <button type="button" className="logout-button" onClick={handleLogout}>Logout</button>
         </div>
-        {liveNotice && <div className="live-toast">{liveNotice}</div>}
+        {liveNotice && (
+          <div className="live-toast">
+            {liveNotice}
+            {lastLiveSync && <span>Last live sync: {lastLiveSync}</span>}
+          </div>
+        )}
       </section>
 
       {status === "loading" && <div className="state-panel">Loading live SOC data...</div>}
@@ -3045,6 +3105,7 @@ export default function Dashboard() {
           error={collectorError}
           oneTimeKey={collectorOneTimeKey}
           keyCopied={collectorKeyCopied}
+          updatedCollectorIds={updatedCollectorIds}
           onFieldChange={handleCollectorFieldChange}
           onCreate={handleCreateCollector}
           onRotate={handleRotateCollector}

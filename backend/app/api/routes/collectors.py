@@ -31,7 +31,7 @@ from app.services.collector_service import (
 )
 from app.services.detection_engine import run_detection_rules
 from app.services.log_ingestion_service import ingest_logs
-from app.services.websocket_manager import serialize_activity, websocket_manager
+from app.services.websocket_manager import serialize_activity, serialize_collector, websocket_manager
 from app.services.windows_event_parser import parse_windows_event, parse_windows_events
 
 router = APIRouter()
@@ -98,22 +98,19 @@ async def collector_heartbeat(
     await websocket_manager.broadcast_activity(
         {
             "type": "collector_heartbeat",
-            "collector_id": collector.id,
-            "collector_name": collector.name,
-            "health_status": collector.health_status,
-            "heartbeat_count": collector.heartbeat_count,
-            "last_heartbeat_at": collector.last_heartbeat_at.isoformat() if collector.last_heartbeat_at else None,
+            "collector": serialize_collector(collector),
         }
     )
     if previous_status != collector.health_status:
         await websocket_manager.broadcast_activity(
             {
                 "type": "collector_health_changed",
-                "collector_id": collector.id,
-                "collector_name": collector.name,
+                "collector": serialize_collector(collector),
+                "previous_status": previous_status,
                 "health_status": collector.health_status,
             }
         )
+    await websocket_manager.broadcast_dashboard_metrics(db)
     return CollectorHeartbeatResponse(
         collector_name=collector.name,
         collector_type=collector.collector_type,
@@ -228,6 +225,7 @@ async def create_live_collector(
     db.refresh(collector)
     db.refresh(activity)
     await _broadcast_collector("collector_created", collector, activity)
+    await websocket_manager.broadcast_dashboard_metrics(db)
     return CollectorCreatedResponse(collector=collector, api_key=api_key)
 
 
@@ -263,6 +261,7 @@ async def update_collector(
     db.refresh(collector)
     db.refresh(activity)
     await _broadcast_collector("collector_updated", collector, activity)
+    await websocket_manager.broadcast_dashboard_metrics(db)
     return collector
 
 
@@ -288,6 +287,7 @@ async def rotate_live_collector(
     db.refresh(collector)
     db.refresh(activity)
     await _broadcast_collector("collector_updated", collector, activity)
+    await websocket_manager.broadcast_dashboard_metrics(db)
     return CollectorRotateResponse(collector=collector, api_key=api_key)
 
 
@@ -312,6 +312,7 @@ async def revoke_live_collector(
     db.refresh(collector)
     db.refresh(activity)
     await _broadcast_collector("collector_revoked", collector, activity)
+    await websocket_manager.broadcast_dashboard_metrics(db)
     return collector
 
 
@@ -351,16 +352,24 @@ async def _collector_ingest(
             await websocket_manager.broadcast_activity({"type": "activity_created", "activity": detection_activity})
 
     await websocket_manager.broadcast_activity({"type": "activity_created", "activity": serialize_activity(activity)})
+    await websocket_manager.broadcast_event(
+        "event_ingested",
+        {
+            "collector": serialize_collector(collector),
+            "ingested": result["ingested"],
+            "assets_created": result["assets_created"],
+        },
+    )
     await websocket_manager.broadcast_activity(
         {
             "type": "collector_ingestion_completed",
-            "collector_id": collector.id,
-            "collector_name": collector.name,
+            "collector": serialize_collector(collector),
             "ingested": result["ingested"],
             "auto_detect": auto_detect,
         }
     )
     await websocket_manager.broadcast_activity({"type": "graph_updated"})
+    await websocket_manager.broadcast_dashboard_metrics(db)
     return BulkIngestResponse(
         **result,
         detections_run=bool(auto_detect and result["ingested"]),
@@ -419,8 +428,6 @@ async def _broadcast_collector(event_type: str, collector: models.Collector, act
     await websocket_manager.broadcast_activity(
         {
             "type": event_type,
-            "collector_id": collector.id,
-            "collector_name": collector.name,
-            "is_active": collector.is_active,
+            "collector": serialize_collector(collector),
         }
     )

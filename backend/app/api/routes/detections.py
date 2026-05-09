@@ -32,6 +32,7 @@ async def run_detections(
     for activity in created_activities:
         await websocket_manager.broadcast_activity({"type": "activity_created", "activity": activity})
 
+    await websocket_manager.broadcast_dashboard_metrics(db)
     return {
         "rules_checked": int(result["rules_checked"]),
         "alerts_created": int(result["alerts_created"]),

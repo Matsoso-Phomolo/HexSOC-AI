@@ -36,6 +36,7 @@ async def create_alert(
     await websocket_manager.broadcast_activity(
         {"type": "activity_created", "activity": serialize_activity(activity)}
     )
+    await websocket_manager.broadcast_dashboard_metrics(db)
     return alert
 
 
@@ -81,4 +82,6 @@ async def update_alert_status(
     await websocket_manager.broadcast_activity(
         {"type": "activity_created", "activity": serialize_activity(activity)}
     )
+    await websocket_manager.broadcast_event("alert_updated", {"alert": serialize_alert(alert)})
+    await websocket_manager.broadcast_dashboard_metrics(db)
     return alert

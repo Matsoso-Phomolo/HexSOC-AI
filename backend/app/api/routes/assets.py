@@ -30,6 +30,7 @@ async def create_asset(payload: AssetCreate, db: Session = Depends(get_db)) -> m
     await websocket_manager.broadcast_activity(
         {"type": "activity_created", "activity": serialize_activity(activity)}
     )
+    await websocket_manager.broadcast_dashboard_metrics(db)
     return asset
 
 

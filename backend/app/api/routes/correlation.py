@@ -34,5 +34,6 @@ async def run_correlation_engine(
     )
     await websocket_manager.broadcast_activity(payload)
     await websocket_manager.broadcast_activity({"type": "graph_updated"})
+    await websocket_manager.broadcast_dashboard_metrics(db)
 
     return result

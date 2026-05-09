@@ -34,8 +34,8 @@ export function useRealtimeAlerts({ onMessage }) {
 
       socket.onmessage = (event) => {
         try {
-          const payload = JSON.parse(event.data);
-          messageHandlerRef.current?.(payload);
+          const message = normalizeRealtimeMessage(JSON.parse(event.data));
+          messageHandlerRef.current?.(message);
         } catch {
           messageHandlerRef.current?.({ type: "message", raw: event.data });
         }
@@ -66,4 +66,20 @@ export function useRealtimeAlerts({ onMessage }) {
   }, []);
 
   return status;
+}
+
+function normalizeRealtimeMessage(message) {
+  if (message?.payload && typeof message.payload === "object") {
+    return {
+      ...message.payload,
+      type: message.type,
+      timestamp: message.timestamp,
+      payload: message.payload,
+    };
+  }
+  return {
+    ...message,
+    timestamp: message?.timestamp ?? new Date().toISOString(),
+    payload: Object.fromEntries(Object.entries(message ?? {}).filter(([key]) => !["type", "timestamp"].includes(key))),
+  };
 }

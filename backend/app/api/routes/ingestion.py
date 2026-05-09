@@ -83,6 +83,7 @@ async def _ingest(
     )
     await websocket_manager.broadcast_activity({"type": "activity_created", "activity": serialize_activity(activity)})
     await websocket_manager.broadcast_activity({"type": "graph_updated"})
+    await websocket_manager.broadcast_dashboard_metrics(db)
 
     return BulkIngestResponse(
         **result,

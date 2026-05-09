@@ -310,6 +310,7 @@ async def _broadcast_case(
             {"type": "activity_created", "activity": serialize_activity(activity)}
         )
     await websocket_manager.broadcast_activity({"type": event_type, "incident_id": incident_id})
+    await websocket_manager.broadcast_dashboard_metrics(db)
 
 
 def _build_case_report(db: Session, incident: models.Incident) -> dict[str, Any]:

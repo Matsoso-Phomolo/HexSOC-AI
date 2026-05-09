@@ -30,6 +30,8 @@ async def create_event(payload: EventCreate, db: Session = Depends(get_db)) -> m
     await websocket_manager.broadcast_activity(
         {"type": "activity_created", "activity": serialize_activity(activity)}
     )
+    await websocket_manager.broadcast_event("event_ingested", {"event_id": event.id, "event_type": event.event_type})
+    await websocket_manager.broadcast_dashboard_metrics(db)
     return event
 
 
