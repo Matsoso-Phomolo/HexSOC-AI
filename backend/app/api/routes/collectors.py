@@ -10,6 +10,7 @@ from app.db import models
 from app.schemas.collector import (
     CollectorCreate,
     CollectorCreatedResponse,
+    CollectorHeartbeatResponse,
     CollectorRead,
     CollectorRotateResponse,
     CollectorUpdate,
@@ -29,6 +30,30 @@ from app.services.websocket_manager import serialize_activity, websocket_manager
 from app.services.windows_event_parser import parse_windows_event, parse_windows_events
 
 router = APIRouter()
+
+
+@router.post("/heartbeat", response_model=CollectorHeartbeatResponse, summary="Collector heartbeat")
+async def collector_heartbeat(
+    api_key: str | None = Header(default=None, alias="X-HexSOC-API-Key"),
+    db: Session = Depends(get_db),
+) -> CollectorHeartbeatResponse:
+    collector = get_collector_from_key(db, api_key)
+    db.commit()
+    db.refresh(collector)
+    await websocket_manager.broadcast_activity(
+        {
+            "type": "collector_updated",
+            "collector_id": collector.id,
+            "collector_name": collector.name,
+            "is_active": collector.is_active,
+        }
+    )
+    return CollectorHeartbeatResponse(
+        collector_name=collector.name,
+        collector_type=collector.collector_type,
+        status="online",
+        last_seen_at=collector.last_seen_at,
+    )
 
 
 @router.post("/ingest/event", response_model=BulkIngestResponse, status_code=201, summary="Collector ingest event")

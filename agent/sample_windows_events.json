@@ -1,0 +1,125 @@
+{
+  "events": [
+    {
+      "ProviderName": "Microsoft-Windows-Sysmon",
+      "EventID": 1,
+      "UtcTime": "2026-05-08T11:00:00Z",
+      "Computer": "agent-finance-01",
+      "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "powershell.exe -NoP -EncodedCommand SQBFAFgA",
+      "User": "CORP\\jane.finance",
+      "Message": "Process Create: PowerShell encoded command observed."
+    },
+    {
+      "ProviderName": "Microsoft-Windows-Sysmon",
+      "EventID": 3,
+      "UtcTime": "2026-05-08T11:01:00Z",
+      "Computer": "agent-finance-01",
+      "SourceIp": "10.0.22.47",
+      "DestinationIp": "185.199.110.153",
+      "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "Message": "Network connection from suspicious PowerShell process."
+    },
+    {
+      "ProviderName": "Microsoft-Windows-Sysmon",
+      "EventID": 22,
+      "UtcTime": "2026-05-08T11:02:00Z",
+      "Computer": "agent-finance-01",
+      "SourceIp": "10.0.22.47",
+      "QueryName": "a92js8d7f6s5d4f3g2h1.example",
+      "Message": "DNS query for unusual generated-looking domain."
+    },
+    {
+      "ProviderName": "Microsoft-Windows-Security-Auditing",
+      "EventID": 4625,
+      "TimeCreated": "2026-05-08T11:03:00Z",
+      "Computer": "agent-prod-web-01",
+      "IpAddress": "203.0.113.45",
+      "TargetUserName": "svc_backup",
+      "TargetDomainName": "CORP",
+      "Message": "An account failed to log on."
+    },
+    {
+      "ProviderName": "Microsoft-Windows-Security-Auditing",
+      "EventID": 4625,
+      "TimeCreated": "2026-05-08T11:04:00Z",
+      "Computer": "agent-prod-web-01",
+      "IpAddress": "203.0.113.45",
+      "TargetUserName": "svc_backup",
+      "TargetDomainName": "CORP",
+      "Message": "An account failed to log on."
+    },
+    {
+      "ProviderName": "Microsoft-Windows-Security-Auditing",
+      "EventID": 4625,
+      "TimeCreated": "2026-05-08T11:05:00Z",
+      "Computer": "agent-prod-web-01",
+      "IpAddress": "203.0.113.45",
+      "TargetUserName": "svc_backup",
+      "TargetDomainName": "CORP",
+      "Message": "An account failed to log on."
+    },
+    {
+      "ProviderName": "Microsoft-Windows-Security-Auditing",
+      "EventID": 4625,
+      "TimeCreated": "2026-05-08T11:06:00Z",
+      "Computer": "agent-prod-web-01",
+      "IpAddress": "203.0.113.45",
+      "TargetUserName": "svc_backup",
+      "TargetDomainName": "CORP",
+      "Message": "An account failed to log on."
+    },
+    {
+      "ProviderName": "Microsoft-Windows-Security-Auditing",
+      "EventID": 4625,
+      "TimeCreated": "2026-05-08T11:07:00Z",
+      "Computer": "agent-prod-web-01",
+      "IpAddress": "203.0.113.45",
+      "TargetUserName": "svc_backup",
+      "TargetDomainName": "CORP",
+      "Message": "An account failed to log on."
+    },
+    {
+      "ProviderName": "Microsoft-Windows-Security-Auditing",
+      "EventID": 4624,
+      "TimeCreated": "2026-05-08T11:08:00Z",
+      "Computer": "agent-corp-dc-01",
+      "IpAddress": "198.51.100.23",
+      "TargetUserName": "domain_admin",
+      "TargetDomainName": "CORP",
+      "Message": "An account was successfully logged on."
+    },
+    {
+      "ProviderName": "Microsoft-Windows-Sysmon",
+      "EventID": 10,
+      "UtcTime": "2026-05-08T11:10:00Z",
+      "Computer": "agent-finance-01",
+      "SourceImage": "C:\\Tools\\procdump.exe",
+      "TargetImage": "C:\\Windows\\System32\\lsass.exe",
+      "CommandLine": "procdump.exe -ma lsass.exe C:\\Temp\\lsass.dmp",
+      "User": "CORP\\jane.finance",
+      "Message": "Process accessed LSASS memory."
+    },
+    {
+      "ProviderName": "Microsoft-Windows-Security-Auditing",
+      "EventID": 4697,
+      "TimeCreated": "2026-05-08T11:11:00Z",
+      "Computer": "agent-corp-dc-01",
+      "ServiceName": "Remote Update Service",
+      "ServiceFileName": "psexecsvc.exe",
+      "SubjectUserName": "domain_admin",
+      "SubjectDomainName": "CORP",
+      "Message": "A service was installed in the system by remote service tooling."
+    },
+    {
+      "ProviderName": "Microsoft-Windows-Sysmon",
+      "EventID": 11,
+      "UtcTime": "2026-05-08T11:13:00Z",
+      "Computer": "agent-finance-01",
+      "TargetFilename": "C:\\Users\\Public\\beacon-loader.exe",
+      "Image": "C:\\Users\\Public\\beacon-loader.exe",
+      "User": "CORP\\jane.finance",
+      "Message": "Malware beacon loader file created. Trojan ransomware staging suspected."
+    }
+  ]
+}

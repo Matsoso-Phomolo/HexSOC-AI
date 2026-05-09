@@ -17,6 +17,7 @@ build/
 .env
 .env.*
 !.env.example
+agent/config.json
 *.pem
 *.key
 

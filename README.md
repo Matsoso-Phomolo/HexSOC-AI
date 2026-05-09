@@ -147,3 +147,23 @@ $env:COLLECTOR_API_KEY="<collector_api_key>"
 $env:HEXSOC_BACKEND_URL="http://127.0.0.1:9000"
 python scripts\send_sample_collector_logs.py
 ```
+
+## HexSOC Agent Prototype
+
+The `agent/` folder contains a lightweight Python collector prototype that sends Windows/Sysmon sample telemetry to HexSOC AI with a collector API key.
+
+Basic local flow:
+
+1. Create a collector from the Live Collectors panel.
+2. Copy the one-time API key.
+3. Create `agent/config.json` from `agent/config.example.json`.
+4. Run:
+
+```powershell
+cd "C:\Users\windows 10\Desktop\Workshop\hexsoc-ai\agent"
+pip install -r requirements.txt
+python hexsoc_agent.py --config config.json --heartbeat-only
+python hexsoc_agent.py --config config.json --once
+```
+
+The agent sends a heartbeat to `POST /api/collectors/heartbeat`, then submits Windows/Sysmon telemetry to `/api/collectors/ingest/windows-events/bulk?auto_detect=true`. Confirm the dashboard shows new events, alert detections, activity records, and an updated collector `last_seen_at`.

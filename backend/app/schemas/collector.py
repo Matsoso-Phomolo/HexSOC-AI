@@ -54,3 +54,12 @@ class CollectorRotateResponse(BaseModel):
 
     collector: CollectorRead
     api_key: str
+
+
+class CollectorHeartbeatResponse(BaseModel):
+    """Heartbeat response returned to external live collectors."""
+
+    collector_name: str
+    collector_type: str
+    status: str
+    last_seen_at: datetime | None = None
