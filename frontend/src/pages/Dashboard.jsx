@@ -967,6 +967,15 @@ function GraphInvestigationPanel({
   const expandedGraph = expandGraphClusters(deduplicateGraphNodes(graphData?.nodes ?? []), graphData?.edges ?? [], expandedClusterIds);
   const edges = normalizeGraphEdges(expandedGraph.edges, expandedGraph.nodes, graphControls.edgeVisibility);
   const nodes = layoutGraph(expandedGraph.nodes, graphControls.physicsEnabled);
+  const renderNodes = [...nodes].sort((left, right) => {
+    const rank = (node) => {
+      if (selectedNode?.id === node.id) return 4;
+      if (["event_cluster", "alert_cluster"].includes(node.type)) return 3;
+      if (node.type === "cluster_member") return 2;
+      return 1;
+    };
+    return rank(left) - rank(right);
+  });
   const nodeById = Object.fromEntries(nodes.map((node) => [node.id, node]));
   const summary = graphData?.summary ?? {};
   const focusedNodeIds = selectedNode ? graphNeighbors(selectedNode.id, edges) : null;
@@ -1156,7 +1165,7 @@ function GraphInvestigationPanel({
               );
             })}
 
-            {nodes.map((node) => {
+            {renderNodes.map((node) => {
               const highRisk = node.risk_score >= 70 || ["high", "critical"].includes(node.severity);
               const focused = !focusedNodeIds || focusedNodeIds.has(node.id);
               const nodeRadius = graphNodeRadius(node);

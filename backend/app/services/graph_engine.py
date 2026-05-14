@@ -12,6 +12,24 @@ from app.services.threat_intel_service import get_alert_source_ip
 
 SEVERITY_RANK = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 SEVERITY_SCORE = {"info": 0, "low": 15, "medium": 35, "high": 70, "critical": 90}
+GRAPH_EVENT_SCAN_LIMIT = 900
+GRAPH_ALERT_SCAN_LIMIT = 450
+GRAPH_ASSET_SCAN_LIMIT = 500
+GRAPH_INCIDENT_SCAN_LIMIT = 200
+RELATIONSHIP_WEIGHTS = {
+    "targets_asset": 90,
+    "raised_alert": 85,
+    "mapped_to": 80,
+    "triggered_alert_cluster": 78,
+    "escalated_to_incident": 95,
+    "generated_event_cluster": 65,
+    "affects_asset": 72,
+    "associated_with": 45,
+    "connected_to": 40,
+    "executed_in": 50,
+    "enriched_by_threat_intel": 70,
+    "correlated_with": 60,
+}
 
 
 def build_investigation_graph(
@@ -41,8 +59,8 @@ def build_investigation_graph(
 
     events = _query_events(db, source_ip, severity, limit, mitre_tactic=mitre_tactic, hostname=hostname, time_window=time_window)
     alerts = _query_alerts(db, source_ip, severity, limit, mitre_tactic=mitre_tactic, time_window=time_window)
-    assets = db.query(models.Asset).all()
-    incidents = db.query(models.Incident).all()
+    assets = db.query(models.Asset).order_by(models.Asset.id.desc()).limit(GRAPH_ASSET_SCAN_LIMIT).all()
+    incidents = db.query(models.Incident).order_by(models.Incident.id.desc()).limit(GRAPH_INCIDENT_SCAN_LIMIT).all()
 
     nodes: dict[str, dict[str, Any]] = {}
     edges: dict[str, dict[str, str]] = {}
@@ -229,10 +247,12 @@ def build_aggregated_investigation_graph(
     limit: int = 150,
 ) -> dict[str, Any]:
     """Build an enterprise investigation graph with server-side aggregation."""
-    events = _query_events(db, source_ip, severity, max(limit * 8, 300), mitre_tactic=mitre_tactic, hostname=hostname, time_window=time_window)
-    alerts = _query_alerts(db, source_ip, severity, max(limit * 4, 200), mitre_tactic=mitre_tactic, time_window=time_window)
-    assets = db.query(models.Asset).all()
-    incidents = db.query(models.Incident).all()
+    scan_event_limit = min(max(limit * 8, 300), GRAPH_EVENT_SCAN_LIMIT)
+    scan_alert_limit = min(max(limit * 4, 200), GRAPH_ALERT_SCAN_LIMIT)
+    events = _query_events(db, source_ip, severity, scan_event_limit, mitre_tactic=mitre_tactic, hostname=hostname, time_window=time_window)
+    alerts = _query_alerts(db, source_ip, severity, scan_alert_limit, mitre_tactic=mitre_tactic, time_window=time_window)
+    assets = db.query(models.Asset).order_by(models.Asset.id.desc()).limit(GRAPH_ASSET_SCAN_LIMIT).all()
+    incidents = db.query(models.Incident).order_by(models.Incident.id.desc()).limit(GRAPH_INCIDENT_SCAN_LIMIT).all()
 
     nodes: dict[str, dict[str, Any]] = {}
     edges: dict[str, dict[str, str]] = {}
@@ -276,6 +296,12 @@ def build_aggregated_investigation_graph(
                 "source_ip": source_key if source_key != "unknown" else None,
                 "mitre_technique_id": technique_id,
                 "sample_event_ids": [event.id for event in cluster_events[:10]],
+                "first_seen": min(event.created_at for event in cluster_events if event.created_at).isoformat()
+                if any(event.created_at for event in cluster_events)
+                else None,
+                "last_seen": max(event.created_at for event in cluster_events if event.created_at).isoformat()
+                if any(event.created_at for event in cluster_events)
+                else None,
             },
         )
 
@@ -336,6 +362,12 @@ def build_aggregated_investigation_graph(
                 "count": len(cluster_alerts),
                 "source_ip": source_key if source_key != "unknown" else None,
                 "sample_alert_ids": [alert.id for alert in cluster_alerts[:10]],
+                "first_seen": min(alert.created_at for alert in cluster_alerts if alert.created_at).isoformat()
+                if any(alert.created_at for alert in cluster_alerts)
+                else None,
+                "last_seen": max(alert.created_at for alert in cluster_alerts if alert.created_at).isoformat()
+                if any(alert.created_at for alert in cluster_alerts)
+                else None,
             },
         )
         if source_key != "unknown":
@@ -368,9 +400,11 @@ def build_aggregated_investigation_graph(
                     _add_edge(edges, alert_cluster_id, incident_node_id, "escalated_to_incident")
 
     degree = Counter()
+    relationship_weights = Counter()
     for edge in edges.values():
         degree[edge["source"]] += 1
         degree[edge["target"]] += 1
+        relationship_weights[edge["relationship"]] += int(edge.get("weight", 1))
 
     node_values = _filter_nodes_by_type(nodes.values(), node_type)
     effective_limit = min(limit, 100) if len(node_values) > 100 else limit
@@ -394,6 +428,8 @@ def build_aggregated_investigation_graph(
             "available_nodes": len(nodes),
             "available_edges": len(edges),
             "aggressive_aggregation": aggressive_aggregation,
+            "relationship_weights": _counter_items(relationship_weights),
+            "timeline_ready": True,
         },
     }
 
@@ -585,13 +621,15 @@ def _merge_node(
     }
 
 
-def _add_edge(edges: dict[str, dict[str, str]], source: str, target: str, relationship: str) -> None:
+def _add_edge(edges: dict[str, dict[str, Any]], source: str, target: str, relationship: str) -> None:
     edge_id = f"edge:{source}-{target}-{relationship}"
+    weight = RELATIONSHIP_WEIGHTS.get(relationship, 50)
     edges[edge_id] = {
         "id": edge_id,
         "source": source,
         "target": target,
         "relationship": relationship,
+        "weight": weight,
     }
 
 

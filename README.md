@@ -62,6 +62,38 @@ Production notes:
 - Render PostgreSQL will provide its own production database through `DATABASE_URL`.
 - The backend reads `DATABASE_URL`, `FRONTEND_ORIGIN`, and `CORS_ORIGINS` from the environment at startup.
 - The Vercel frontend must use `VITE_API_BASE_URL=<your Render backend URL>`.
+- Render production start command must not use `--reload`: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
+- Graph and SOC APIs use bounded query limits and GZip compression to reduce production memory pressure.
+
+## Roadmap Notes
+
+HexSOC AI is evolving as an AI-native cyber operations platform:
+
+```text
+Telemetry Sources
+-> Streaming / Queue Layer
+-> Detection Engine
+-> Threat Intelligence Feed Integrator
+-> Threat Intel Enrichment Engine
+-> Graph Investigation Engine
+-> AI Correlation Engine
+-> SOC Dashboard
+-> Automation / Response
+-> Continuous Learning Loop
+```
+
+Current engineering focus:
+
+- Stabilize graph intelligence with bounded payloads, weighted relationships, cluster summaries, deduplication, and future timeline replay metadata.
+- Build Phase 4A Threat Intelligence Feed Integrator as a modular subsystem with IOC models, schemas, routes, services, adapters, normalization, deduplication, scoring, TTL, and correlation links.
+
+Threat Intelligence Feed Integrator endpoints:
+
+- `GET /api/threat-intel/iocs`
+- `POST /api/threat-intel/iocs`
+- `POST /api/threat-intel/iocs/bulk`
+- `POST /api/threat-intel/feeds/normalize`
+- `POST /api/threat-intel/correlate`
 
 ## Production Proof
 

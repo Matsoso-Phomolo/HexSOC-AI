@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from app.api.routes import (
     activity,
@@ -20,6 +21,7 @@ from app.api.routes import (
     mitre,
     realtime,
     threat_intel,
+    threat_intel_feeds,
     users,
     websocket,
     windows_events,
@@ -45,6 +47,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 @app.get("/", tags=["root"])
@@ -74,6 +77,7 @@ app.include_router(detections.router, prefix=f"{settings.api_prefix}/detections"
 app.include_router(copilot.router, prefix=f"{settings.api_prefix}/copilot", tags=["copilot"])
 app.include_router(correlation.router, prefix=f"{settings.api_prefix}/correlation", tags=["correlation"])
 app.include_router(threat_intel.router, prefix=f"{settings.api_prefix}/threat-intel", tags=["threat-intel"])
+app.include_router(threat_intel_feeds.router, prefix=f"{settings.api_prefix}/threat-intel", tags=["threat-intel-feeds"])
 app.include_router(graph.router, prefix=f"{settings.api_prefix}/graph", tags=["graph"])
 app.include_router(mitre.router, prefix=f"{settings.api_prefix}/mitre", tags=["mitre"])
 app.include_router(ingestion.router, prefix=f"{settings.api_prefix}/ingestion", tags=["ingestion"])

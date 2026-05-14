@@ -167,6 +167,44 @@ class Collector(Base):
     revoked_at = Column(DateTime(timezone=True), nullable=True)
 
 
+class ThreatIOC(Base, TimestampMixin):
+    """Normalized threat intelligence indicator for feed ingestion and correlation."""
+
+    __tablename__ = "threat_iocs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ioc_type = Column(String(40), nullable=False, index=True)
+    value = Column(String(1000), nullable=False, index=True)
+    normalized_value = Column(String(1000), nullable=False, index=True)
+    source = Column(String(120), nullable=False, index=True)
+    source_reference = Column(String(500), nullable=True)
+    confidence_score = Column(Integer, nullable=False, default=50, index=True)
+    risk_score = Column(Integer, nullable=False, default=50, index=True)
+    severity = Column(String(40), nullable=False, default="medium", index=True)
+    tags = Column(JSON, nullable=True)
+    classification = Column(String(120), nullable=True, index=True)
+    description = Column(Text, nullable=True)
+    first_seen_at = Column(DateTime(timezone=True), nullable=True)
+    last_seen_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    is_active = Column(Boolean, nullable=False, default=True, index=True)
+    raw_payload = Column(JSON, nullable=True)
+
+
+class ThreatIOCLink(Base):
+    """Relationship between a normalized IOC and a SOC entity."""
+
+    __tablename__ = "threat_ioc_links"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ioc_id = Column(Integer, ForeignKey("threat_iocs.id"), nullable=False, index=True)
+    entity_type = Column(String(40), nullable=False, index=True)
+    entity_id = Column(Integer, nullable=False, index=True)
+    relationship = Column(String(80), nullable=False, default="correlated_with")
+    confidence_score = Column(Integer, nullable=False, default=50)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class CaseNote(Base):
     """Analyst note attached to an incident case."""
 
