@@ -19,6 +19,7 @@ from app.api.routes import (
     health,
     ingestion,
     incidents,
+    investigation_recommendations,
     mitre,
     realtime,
     threat_intel,
@@ -67,6 +68,7 @@ app.include_router(health.router, prefix=settings.api_prefix)
 app.include_router(demo.router, prefix=f"{settings.api_prefix}/demo", tags=["demo"])
 app.include_router(activity.router, prefix=f"{settings.api_prefix}/activity", tags=["activity"])
 app.include_router(attack_chains.router, prefix=settings.api_prefix, tags=["attack-chains"])
+app.include_router(investigation_recommendations.router, prefix=f"{settings.api_prefix}/investigation", tags=["investigation"])
 app.include_router(auth.router, prefix=f"{settings.api_prefix}/auth", tags=["auth"])
 app.include_router(users.router, prefix=f"{settings.api_prefix}/users", tags=["users"])
 app.include_router(assets.router, prefix=f"{settings.api_prefix}/assets", tags=["assets"])
