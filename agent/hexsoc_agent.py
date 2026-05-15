@@ -1043,6 +1043,7 @@ def send_sample_batches(
     state_path: str | None = None,
     deduplicate_events: bool = True,
     fingerprint_history_limit: int = DEFAULT_FINGERPRINT_HISTORY_LIMIT,
+    debug: bool = False,
 ) -> int:
     """Send sample event batches and return total successfully ingested events."""
     total_ingested = 0
@@ -1108,6 +1109,7 @@ def send_sample_batches_compact(
     state_path: str | None = None,
     deduplicate_events: bool = True,
     fingerprint_history_limit: int = DEFAULT_FINGERPRINT_HISTORY_LIMIT,
+    debug: bool = False,
 ) -> int:
     """Send sample batches with concise service-loop logging."""
     total_ingested = 0
