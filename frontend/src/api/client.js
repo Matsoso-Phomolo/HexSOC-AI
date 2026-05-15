@@ -166,3 +166,7 @@ export async function getIncidentWorkspace(incidentId) {
 export async function createIncidentWorkspaceEvidenceChecklist(incidentId) {
   return apiPost(`/api/incidents/${encodeURIComponent(incidentId)}/workspace/evidence-checklist`, {});
 }
+
+export async function escalateAttackChainToIncident(chainId) {
+  return apiPost(`/api/incidents/escalate/attack-chain/${encodeURIComponent(chainId)}`, {});
+}

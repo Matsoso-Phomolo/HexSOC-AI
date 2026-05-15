@@ -19,6 +19,7 @@ import {
   register,
   rebuildAttackChains,
   createIncidentWorkspaceEvidenceChecklist,
+  escalateAttackChainToIncident,
   correlateIndicators,
   searchThreatIntel,
   setStoredToken,
@@ -2289,13 +2290,18 @@ function AttackChainIntelligencePanel({
   timelineState,
   error,
   rebuildResult,
+  escalationResult,
+  escalationState,
   onRebuild,
   onSelectChain,
+  onEscalateChain,
   canOperate,
 }) {
   const chainList = chains?.chains ?? [];
   const campaignList = campaigns?.campaigns ?? [];
   const highestRiskChain = chainList[0];
+  const selectedChain = chainList.find((chain) => chain.chain_id === selectedChainId);
+  const selectedCanEscalate = selectedChain && (["critical", "high"].includes(selectedChain.classification) || (selectedChain.risk_score ?? 0) >= 75);
   const criticalHighCount = chainList.filter((chain) => ["critical", "high"].includes(chain.classification)).length;
 
   return (
@@ -2339,6 +2345,14 @@ function AttackChainIntelligencePanel({
         </div>
       )}
 
+      {escalationResult && (
+        <div className="detection-result">
+          <span>{escalationResult.created ? "Incident created" : escalationResult.escalated ? "Incident updated" : "Escalation skipped"}</span>
+          <span>Incident #{escalationResult.incident_id ?? "n/a"}</span>
+          <span>{escalationResult.priority ?? "no priority"}</span>
+        </div>
+      )}
+
       {state === "loading" && <p className="empty-state">Loading attack-chain intelligence...</p>}
       {state !== "loading" && chainList.length === 0 && (
         <p className="empty-state">No attack-chain candidates yet. Run detection, MITRE mapping, or rebuild chains after ingesting telemetry.</p>
@@ -2378,7 +2392,14 @@ function AttackChainIntelligencePanel({
           </ul>
 
           <div className="attack-chain-detail">
-            <h3>Timeline Preview</h3>
+            <div className="record-title-row">
+              <h3>Timeline Preview</h3>
+              {selectedCanEscalate && (
+                <button type="button" disabled={!canOperate || escalationState === "saving"} onClick={() => onEscalateChain(selectedChainId)}>
+                  {escalationState === "saving" ? "Escalating..." : "Escalate to Incident"}
+                </button>
+              )}
+            </div>
             {!selectedChainId && <p className="empty-state">Select a chain to inspect ordered timeline context.</p>}
             {timelineState === "loading" && <p className="empty-state">Loading timeline...</p>}
             {selectedChainId && timelineState !== "loading" && (timeline?.steps ?? []).length === 0 && (
@@ -2623,6 +2644,8 @@ export default function Dashboard() {
   const [attackChainState, setAttackChainState] = useState("idle");
   const [attackChainError, setAttackChainError] = useState("");
   const [attackChainRebuildResult, setAttackChainRebuildResult] = useState(null);
+  const [attackChainEscalationResult, setAttackChainEscalationResult] = useState(null);
+  const [attackChainEscalationState, setAttackChainEscalationState] = useState("idle");
   const [selectedAttackChainId, setSelectedAttackChainId] = useState("");
   const [attackChainTimeline, setAttackChainTimeline] = useState(null);
   const [attackChainTimelineState, setAttackChainTimelineState] = useState("idle");
@@ -3447,6 +3470,7 @@ export default function Dashboard() {
     try {
       setAttackChainState("rebuilding");
       setAttackChainError("");
+      setAttackChainEscalationResult(null);
       const result = await rebuildAttackChains(50);
       setAttackChainRebuildResult(result);
       setAttackChains({ total: result.chains?.length ?? 0, limit: 50, chains: result.chains ?? [] });
@@ -3463,6 +3487,26 @@ export default function Dashboard() {
     } catch (requestError) {
       setAttackChainError("Attack-chain rebuild is temporarily unavailable. Try again after backend storage is healthy.");
       setAttackChainState("ready");
+    }
+  }
+
+  async function handleEscalateSelectedAttackChain(chainId) {
+    if (!chainId) return;
+    try {
+      setAttackChainEscalationState("saving");
+      setAttackChainError("");
+      const result = await escalateAttackChainToIncident(chainId);
+      setAttackChainEscalationResult(result);
+      await refreshSlices(["incidents", "activity"]);
+      if (result.incident_id) {
+        setSelectedCaseId(String(result.incident_id));
+        setActiveCaseTab("workspace");
+        await loadCase(String(result.incident_id));
+      }
+    } catch (requestError) {
+      setAttackChainError(requestError.message);
+    } finally {
+      setAttackChainEscalationState("idle");
     }
   }
 
@@ -4031,8 +4075,14 @@ export default function Dashboard() {
           timelineState={attackChainTimelineState}
           error={attackChainError}
           rebuildResult={attackChainRebuildResult}
+          escalationResult={attackChainEscalationResult}
+          escalationState={attackChainEscalationState}
           onRebuild={handleRebuildAttackChains}
-          onSelectChain={setSelectedAttackChainId}
+          onSelectChain={(chainId) => {
+            setSelectedAttackChainId(chainId);
+            setAttackChainEscalationResult(null);
+          }}
+          onEscalateChain={handleEscalateSelectedAttackChain}
           canOperate={canOperate}
         />
       )}
