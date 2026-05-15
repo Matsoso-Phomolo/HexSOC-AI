@@ -1,8 +1,10 @@
 """Investigation graph endpoints."""
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -10,6 +12,7 @@ from app.services.graph_engine import build_investigation_graph
 from app.services.ioc_graph_enrichment import graph_ioc_relationships
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/investigation", summary="Get investigation graph")
@@ -31,17 +34,24 @@ def get_investigation_graph(
     normalized_mitre_tactic = mitre_tactic.strip() if mitre_tactic and mitre_tactic.strip() else None
     normalized_hostname = hostname.strip() if hostname and hostname.strip() else None
     normalized_time_window = time_window.strip().lower() if time_window and time_window.strip() else None
-    return build_investigation_graph(
-        db,
-        source_ip=normalized_source_ip,
-        severity=normalized_severity,
-        node_type=normalized_node_type,
-        mitre_tactic=normalized_mitre_tactic,
-        hostname=normalized_hostname,
-        time_window=normalized_time_window,
-        aggregate=aggregate,
-        limit=limit,
-    )
+    try:
+        return build_investigation_graph(
+            db,
+            source_ip=normalized_source_ip,
+            severity=normalized_severity,
+            node_type=normalized_node_type,
+            mitre_tactic=normalized_mitre_tactic,
+            hostname=normalized_hostname,
+            time_window=normalized_time_window,
+            aggregate=aggregate,
+            limit=limit,
+        )
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Investigation graph query failed: %s", exc)
+    except Exception as exc:
+        logger.exception("Investigation graph serialization failed: %s", exc)
+    return _empty_graph_payload(error="graph_unavailable")
 
 
 @router.get("/ioc-relationships", summary="Get IOC graph relationships")
@@ -50,4 +60,30 @@ def get_ioc_relationship_graph(
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """Return bounded IOC relationship nodes and edges for graph investigation."""
-    return graph_ioc_relationships(db, limit=limit)
+    try:
+        return graph_ioc_relationships(db, limit=limit)
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("IOC relationship graph query failed: %s", exc)
+    except Exception as exc:
+        logger.exception("IOC relationship graph serialization failed: %s", exc)
+    return _empty_graph_payload(error="ioc_relationship_graph_unavailable")
+
+
+def _empty_graph_payload(error: str | None = None) -> dict[str, Any]:
+    return {
+        "nodes": [],
+        "edges": [],
+        "summary": {
+            "nodes": 0,
+            "edges": 0,
+            "high_risk_nodes": 0,
+            "high_risk_relationships": 0,
+            "high_risk_clusters": 0,
+            "top_source_ips": [],
+            "top_techniques": [],
+            "most_connected_assets": [],
+            "aggregation": "fallback",
+            "error": error,
+        },
+    }

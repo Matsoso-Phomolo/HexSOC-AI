@@ -387,6 +387,40 @@ function buildGraphPath(filters) {
   return `/api/graph/investigation${query ? `?${query}` : ""}`;
 }
 
+function emptyGraphPayload(error = null) {
+  return {
+    nodes: [],
+    edges: [],
+    summary: {
+      nodes: 0,
+      edges: 0,
+      high_risk_nodes: 0,
+      high_risk_clusters: 0,
+      top_source_ips: [],
+      top_techniques: [],
+      most_connected_assets: [],
+      aggregation: "fallback",
+      error,
+    },
+  };
+}
+
+function emptyTimelinePayload(chainId, error = null) {
+  return {
+    chain_id: chainId,
+    timeline: {
+      total_steps: 0,
+      first_seen: null,
+      last_seen: null,
+      stages: [],
+      highest_severity: "info",
+      summary: "No persisted timeline steps are available.",
+    },
+    steps: [],
+    summary: { source: "fallback", error },
+  };
+}
+
 function layoutGraph(nodes, physicsEnabled = false) {
   const centerX = 520;
   const centerY = 260;
@@ -2933,14 +2967,23 @@ export default function Dashboard() {
       setGraphStatus("loading");
       setGraphError("");
       const result = await apiGet(buildGraphPath(graphFilters));
-      setGraphData(result);
+      const safeResult = {
+        ...emptyGraphPayload(),
+        ...result,
+        nodes: Array.isArray(result?.nodes) ? result.nodes : [],
+        edges: Array.isArray(result?.edges) ? result.edges : [],
+        summary: { ...emptyGraphPayload().summary, ...(result?.summary ?? {}) },
+      };
+      setGraphData(safeResult);
       setSelectedGraphNode((currentNode) =>
-        currentNode ? result.nodes.find((node) => node.id === currentNode.id) ?? null : null,
+        currentNode ? safeResult.nodes.find((node) => node.id === currentNode.id) ?? null : null,
       );
       setGraphStatus("ready");
     } catch (requestError) {
-      setGraphError(requestError.message);
-      setGraphStatus("error");
+      setGraphData(emptyGraphPayload("graph_request_failed"));
+      setSelectedGraphNode(null);
+      setGraphError("Graph data is temporarily unavailable. Showing a bounded empty graph.");
+      setGraphStatus("ready");
     }
   }
 
@@ -2950,26 +2993,37 @@ export default function Dashboard() {
       setAttackChainState((currentState) => (currentState === "rebuilding" ? currentState : "loading"));
       setAttackChainError("");
       const [chainSettled, campaignSettled] = await Promise.allSettled([getAttackChains(20), getCampaigns(20)]);
-      if (chainSettled.status === "rejected" && campaignSettled.status === "rejected") {
-        throw chainSettled.reason;
-      }
       const chainResult = chainSettled.status === "fulfilled" ? chainSettled.value : { total: 0, chains: [] };
       const campaignResult = campaignSettled.status === "fulfilled" ? campaignSettled.value : { total: 0, campaigns: [] };
-      setAttackChains(chainResult);
-      setCampaigns(campaignResult);
+      const safeChainResult = {
+        total: Number.isFinite(chainResult?.total) ? chainResult.total : chainResult?.chains?.length ?? 0,
+        limit: chainResult?.limit ?? 20,
+        chains: Array.isArray(chainResult?.chains) ? chainResult.chains : [],
+        summary: chainResult?.summary ?? { source: "frontend_fallback", error: null },
+      };
+      const safeCampaignResult = {
+        total: Number.isFinite(campaignResult?.total) ? campaignResult.total : campaignResult?.campaigns?.length ?? 0,
+        limit: campaignResult?.limit ?? 20,
+        campaigns: Array.isArray(campaignResult?.campaigns) ? campaignResult.campaigns : [],
+        summary: campaignResult?.summary ?? { source: "frontend_fallback", error: null },
+      };
+      setAttackChains(safeChainResult);
+      setCampaigns(safeCampaignResult);
       if (chainSettled.status === "rejected" || campaignSettled.status === "rejected") {
         setAttackChainError("Attack-chain storage is partially unavailable. Showing available results.");
       }
       setSelectedAttackChainId((currentId) => {
-        if (currentId && (chainResult.chains ?? []).some((chain) => chain.chain_id === currentId)) {
+        if (currentId && safeChainResult.chains.some((chain) => chain.chain_id === currentId)) {
           return currentId;
         }
-        return chainResult.chains?.[0]?.chain_id ?? "";
+        return safeChainResult.chains?.[0]?.chain_id ?? "";
       });
       setAttackChainState("ready");
     } catch (requestError) {
-      setAttackChainError(requestError.message);
-      setAttackChainState("error");
+      setAttackChains({ total: 0, limit: 20, chains: [], summary: { source: "frontend_fallback", error: "attack_chain_request_failed" } });
+      setCampaigns({ total: 0, limit: 20, campaigns: [], summary: { source: "frontend_fallback", error: "campaign_request_failed" } });
+      setAttackChainError("Attack-chain intelligence is temporarily unavailable. Existing SOC workflows are unaffected.");
+      setAttackChainState("ready");
     }
   }
 
@@ -2978,11 +3032,16 @@ export default function Dashboard() {
     try {
       setAttackChainTimelineState("loading");
       const result = await getAttackChainTimeline(chainId);
-      setAttackChainTimeline(result);
+      setAttackChainTimeline({
+        ...emptyTimelinePayload(chainId),
+        ...result,
+        steps: Array.isArray(result?.steps) ? result.steps : [],
+      });
       setAttackChainTimelineState("ready");
     } catch (requestError) {
-      setAttackChainError(requestError.message);
-      setAttackChainTimelineState("error");
+      setAttackChainTimeline(emptyTimelinePayload(chainId, "timeline_request_failed"));
+      setAttackChainError("Timeline preview is temporarily unavailable for this chain.");
+      setAttackChainTimelineState("ready");
     }
   }
 
@@ -3306,8 +3365,8 @@ export default function Dashboard() {
       await refreshSlices(["activity"]);
       setAttackChainState("ready");
     } catch (requestError) {
-      setAttackChainError(requestError.message);
-      setAttackChainState("error");
+      setAttackChainError("Attack-chain rebuild is temporarily unavailable. Try again after backend storage is healthy.");
+      setAttackChainState("ready");
     }
   }
 

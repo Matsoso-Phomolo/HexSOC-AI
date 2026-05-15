@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from datetime import datetime
+from enum import Enum
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -138,10 +139,10 @@ def serialize_attack_chain(chain: models.AttackChain) -> dict[str, Any]:
         "chain_id": str(chain.id),
         "stable_fingerprint": chain.stable_fingerprint,
         "title": chain.title,
-        "classification": chain.classification,
-        "risk_score": chain.risk_score,
-        "confidence": chain.confidence,
-        "status": chain.status,
+        "classification": _safe_scalar(chain.classification, "suspicious"),
+        "risk_score": int(chain.risk_score or 0),
+        "confidence": int(chain.confidence or 0),
+        "status": _safe_scalar(chain.status, "open"),
         "primary_group": f"{chain.source_type}:{chain.source_value}" if chain.source_type and chain.source_value else chain.chain_key,
         "primary_source_ip": chain.source_value if chain.source_type == "source_ip" else None,
         "source_type": chain.source_type,
@@ -151,21 +152,21 @@ def serialize_attack_chain(chain: models.AttackChain) -> dict[str, Any]:
         "affected_assets": _safe_list(chain.related_assets),
         "related_events": {"count": chain.event_count, "ids": []},
         "related_alerts": {"count": chain.alert_count, "ids": []},
-        "related_iocs": chain.related_iocs if isinstance(chain.related_iocs, dict) else {"count": 0},
+        "related_iocs": _safe_dict(chain.related_iocs, default={"count": 0}),
         "stages": _steps_from_count(chain),
         "mitre_tactics": _safe_list(chain.mitre_tactics),
         "mitre_techniques": _safe_list(chain.mitre_techniques),
         "timeline": {
-            "total_steps": chain.stage_count,
+            "total_steps": int(chain.stage_count or 0),
             "first_seen": _iso(chain.first_seen),
             "last_seen": _iso(chain.last_seen),
             "stages": _steps_from_count(chain),
-            "highest_severity": chain.classification,
+            "highest_severity": _safe_scalar(chain.classification, "suspicious"),
             "summary": chain.summary,
         },
-        "severity": chain.classification,
+        "severity": _safe_scalar(chain.classification, "suspicious"),
         "recommended_action": chain.summary,
-        "version": chain.version,
+        "version": int(chain.version or 1),
     }
 
 
@@ -178,11 +179,11 @@ def serialize_attack_chain_step(step: models.AttackChainStep) -> dict[str, Any]:
         "timestamp": _iso(step.timestamp),
         "event_type": step.event_type,
         "title": step.description,
-        "severity": step.severity,
-        "attack_stage": step.stage,
-        "mitre_tactic": step.mitre_tactic,
-        "mitre_technique": step.mitre_technique,
-        "mitre_technique_id": step.mitre_technique,
+        "severity": _safe_scalar(step.severity, "info"),
+        "attack_stage": _safe_scalar(step.stage, "unknown"),
+        "mitre_tactic": _safe_scalar(step.mitre_tactic),
+        "mitre_technique": _safe_scalar(step.mitre_technique),
+        "mitre_technique_id": _safe_scalar(step.mitre_technique),
         "hostname": step.hostname,
         "username": step.username,
         "source_ip": step.source_ip,
@@ -199,10 +200,10 @@ def serialize_campaign(campaign: models.CampaignCluster) -> dict[str, Any]:
         "stable_fingerprint": campaign.stable_fingerprint,
         "cluster_key": campaign.campaign_key,
         "title": campaign.title,
-        "classification": campaign.classification,
-        "max_risk_score": campaign.risk_score,
-        "risk_score": campaign.risk_score,
-        "chain_count": campaign.chain_count,
+        "classification": _safe_scalar(campaign.classification, "suspicious"),
+        "max_risk_score": int(campaign.risk_score or 0),
+        "risk_score": int(campaign.risk_score or 0),
+        "chain_count": int(campaign.chain_count or 0),
         "source_ips": _safe_list(campaign.shared_source_ips),
         "shared_iocs": _safe_list(campaign.shared_iocs),
         "affected_assets": _safe_list(campaign.shared_assets),
@@ -262,6 +263,34 @@ def _parse_datetime(value: Any) -> datetime | None:
 
 def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
+
+
+def _safe_scalar(value: Any, default: Any = None) -> Any:
+    if isinstance(value, Enum):
+        return value.value
+    return default if value is None else value
+
+
+def _safe_dict(value: Any, default: dict[str, Any] | None = None) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return {str(key): _safe_json(item) for key, item in value.items()}
+    return default or {}
+
+
+def _safe_json(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return _iso(value)
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, dict):
+        return {str(key): _safe_json(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_safe_json(item) for item in value]
+    if isinstance(value, tuple):
+        return [_safe_json(item) for item in value]
+    if isinstance(value, set):
+        return sorted(_safe_json(item) for item in value)
+    return value
 
 
 def _steps_from_count(chain: models.AttackChain) -> list[str]:

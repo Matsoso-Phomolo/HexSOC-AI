@@ -252,11 +252,11 @@ def _link_payload(link: models.ThreatIOCLink) -> dict[str, Any]:
     return {
         "id": link.id,
         "ioc_id": link.ioc_id,
-        "entity_type": link.entity_type,
+        "entity_type": link.entity_type or "unknown",
         "entity_id": link.entity_id,
-        "relationship": link.relationship,
-        "confidence_score": link.confidence_score,
-        "created_at": link.created_at,
+        "relationship": link.relationship or "correlated_with",
+        "confidence_score": link.confidence_score or 0,
+        "created_at": link.created_at.isoformat() if link.created_at else None,
     }
 
 

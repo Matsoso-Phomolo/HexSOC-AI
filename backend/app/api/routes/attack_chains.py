@@ -180,7 +180,8 @@ def retrieve_attack_chain_timeline(
         logger.exception("Failed to load attack chain %s timeline chain record: %s", chain_id, exc)
         return _empty_timeline_response(chain_id, error="attack_chain_storage_unavailable")
     if not chain:
-        raise HTTPException(status_code=404, detail="Attack chain not found")
+        logger.warning("Timeline requested for missing attack chain %s; returning bounded fallback", chain_id)
+        return _empty_timeline_response(chain_id, error="attack_chain_not_found")
     try:
         steps = (
             db.query(models.AttackChainStep)

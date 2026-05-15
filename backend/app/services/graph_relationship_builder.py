@@ -34,8 +34,8 @@ def build_relationship(
         "weight": max(1, min(weight, 100)),
         "confidence": max(0, min(confidence, 100)),
         "severity": severity or "info",
-        "first_seen": first_seen,
-        "last_seen": last_seen,
+        "first_seen": _iso(first_seen),
+        "last_seen": _iso(last_seen),
         "metadata": metadata or {},
     }
 
@@ -57,3 +57,7 @@ def dedupe_relationships(relationships: list[dict[str, Any]]) -> list[dict[str, 
         if not existing or relationship.get("weight", 0) > existing.get("weight", 0):
             deduped[edge_id] = relationship
     return list(deduped.values())
+
+
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None

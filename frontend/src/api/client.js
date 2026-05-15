@@ -42,55 +42,62 @@ async function parseResponse(response, path) {
   return response.json();
 }
 
+async function request(path, options = {}) {
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, options);
+    return parseResponse(response, path);
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error(`Backend request unavailable for ${path}.`);
+    }
+    throw error;
+  }
+}
+
 export async function apiGet(path) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  return request(path, {
     headers: authHeaders(),
   });
-  return parseResponse(response, path);
 }
 
 export async function apiPatch(path, payload) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  return request(path, {
     method: "PATCH",
     headers: authHeaders({
       "Content-Type": "application/json",
     }),
     body: JSON.stringify(payload),
   });
-  return parseResponse(response, path);
 }
 
 export async function apiPost(path, payload) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  return request(path, {
     method: "POST",
     headers: authHeaders({
       "Content-Type": "application/json",
     }),
     body: JSON.stringify(payload),
   });
-  return parseResponse(response, path);
 }
 
 export async function login(payload) {
-  const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+  return request("/api/auth/login", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),
   });
-  return parseResponse(response, "/api/auth/login");
 }
 
 export async function register(payload) {
-  const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
+  return request("/api/auth/register", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),
   });
-  return parseResponse(response, "/api/auth/register");
 }
 
 export async function fetchDashboardData() {
