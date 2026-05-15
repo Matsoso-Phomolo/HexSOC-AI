@@ -1,4 +1,4 @@
-# Phase 4A.4 â€” Real Threat Feed Providers
+# Phase 4A.4 — Real Threat Feed Providers
 
 ## Date
 2026-05-15

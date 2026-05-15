@@ -5,6 +5,7 @@ from app.api.deps import get_db
 from app.db import models
 from app.schemas.alert import AlertCreate, AlertRead, AlertStatusUpdate
 from app.services.activity_service import add_activity
+from app.services.automated_correlation_engine import auto_correlate_entity
 from app.services.auth_service import require_role
 from app.services.websocket_manager import serialize_activity, serialize_alert, websocket_manager
 
@@ -32,6 +33,23 @@ async def create_alert(
     db.commit()
     db.refresh(alert)
     db.refresh(activity)
+    try:
+        auto_correlate_entity(
+            db,
+            entity_type="alert",
+            entity_id=alert.id,
+            payload={
+                "message": alert.title,
+                "description": alert.description,
+                "source": alert.source,
+                "detection_rule": alert.detection_rule,
+            },
+            use_providers=False,
+            persist_relationships=True,
+        )
+    except Exception:
+        # Local IOC correlation should never block analyst alert creation.
+        db.rollback()
     await websocket_manager.broadcast_alert({"type": "alert_created", "alert": serialize_alert(alert)})
     await websocket_manager.broadcast_activity(
         {"type": "activity_created", "activity": serialize_activity(activity)}

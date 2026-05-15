@@ -170,16 +170,31 @@ class ThreatProviderEnrichRequest(BaseModel):
     persist: bool = False
 
 
-class ThreatProviderEnrichResponse(BaseModel):
-    """Provider-neutral enrichment response."""
+class AutoCorrelateRequest(BaseModel):
+    """Automated threat intelligence correlation request."""
 
-    total_received: int
-    enriched: int
-    skipped: int
-    provider_errors: list[dict[str, str]]
-    results: list[dict[str, Any]]
-    persisted: dict[str, Any] | None = None
-    limits: dict[str, Any]
+    entity_type: Literal["event", "alert", "asset", "incident", "raw"]
+    entity_id: int | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    use_providers: bool = False
+    persist_relationships: bool = True
+
+
+class AutoCorrelateResponse(BaseModel):
+    """Automated threat intelligence correlation summary."""
+
+    entity_type: str
+    entity_id: str | None = None
+    indicators_extracted: int
+    local_matches: int
+    provider_matches: int
+    relationships_created: int
+    risk_amplification: int
+    max_confidence: int
+    classification: str
+    matched_iocs: list[dict[str, Any]]
+    relationships: list[dict[str, Any]]
+    provider_errors: list[dict[str, Any]]
 
 
 class IOCCorrelationResponse(BaseModel):
