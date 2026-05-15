@@ -48,6 +48,7 @@ Required environment variables:
 - `CORS_ORIGINS=https://hexsoc-ai.vercel.app`
 - `JWT_SECRET_KEY=<secure random production secret>`
 - `JWT_ALGORITHM=HS256`
+- `STARTUP_SCHEMA_SYNC=auto`
 
 Optional environment variables:
 
@@ -55,6 +56,11 @@ Optional environment variables:
 - `KAFKA_BOOTSTRAP_SERVERS=<future production Kafka bootstrap servers>`
 - `SHODAN_API_KEY=<future integration key>`
 - `OPENAI_API_KEY=<future AI integration key>`
+
+Admin recovery:
+
+- Run `backend/scripts/create_admin_user.py` with `ADMIN_EMAIL`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, and `ADMIN_FULL_NAME` to create or reactivate an admin user.
+- Set `ADMIN_RESET_PASSWORD=true` only when intentionally resetting an existing admin password.
 
 Production notes:
 
@@ -64,6 +70,7 @@ Production notes:
 - The Vercel frontend must use `VITE_API_BASE_URL=<your Render backend URL>`.
 - Render production start command must not use `--reload`: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
 - Graph and SOC APIs use bounded query limits and GZip compression to reduce production memory pressure.
+- Production startup uses a lightweight schema sync by default. Use `STARTUP_SCHEMA_SYNC=full` only for a planned maintenance run when legacy schema repair is needed.
 
 ## Roadmap Notes
 

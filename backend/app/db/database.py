@@ -1,14 +1,31 @@
 from collections.abc import Generator
+import logging
 
 from sqlalchemy import create_engine
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 from app.db.models import Base
 
 
-engine = create_engine(settings.database_url, pool_pre_ping=True, future=True)
+logger = logging.getLogger(__name__)
+
+
+def _database_connect_args() -> dict[str, int]:
+    """Return driver-specific connection options for production-safe startup."""
+    if settings.database_url.startswith(("postgresql://", "postgresql+psycopg2://")):
+        return {"connect_timeout": settings.database_connect_timeout_seconds}
+    return {}
+
+
+engine = create_engine(
+    settings.database_url,
+    pool_pre_ping=True,
+    future=True,
+    connect_args=_database_connect_args(),
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
@@ -23,8 +40,19 @@ def get_db_session() -> Generator:
 
 def init_db() -> None:
     """Create starter tables until formal migrations are introduced."""
+    logger.info("Initializing HexSOC database schema")
     Base.metadata.create_all(bind=engine)
-    sync_phase2_schema()
+    sync_mode = settings.startup_schema_sync.lower()
+
+    if sync_mode == "off":
+        logger.info("Startup schema sync disabled")
+        return
+
+    if sync_mode == "full" or (sync_mode == "auto" and settings.app_env.lower() != "production"):
+        sync_phase2_schema()
+        return
+
+    sync_production_schema()
 
 
 def sync_phase2_schema() -> None:
@@ -257,9 +285,70 @@ def sync_phase2_schema() -> None:
         "ALTER TABLE case_evidence ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL",
     ]
 
-    with engine.begin() as connection:
-        for statement in statements:
-            connection.execute(text(statement))
+    _execute_schema_statements(statements, "full startup schema sync")
+
+
+def sync_production_schema() -> None:
+    """Run only critical additive schema checks during production cold start.
+
+    Render starts should be fast and predictable. The full legacy repair pass is
+    still available with STARTUP_SCHEMA_SYNC=full, but production defaults to a
+    compact set of current-platform tables and indexes.
+    """
+    statements = [
+        "ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS actor_username VARCHAR(120)",
+        "ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS actor_role VARCHAR(40)",
+        "CREATE TABLE IF NOT EXISTS threat_iocs (id SERIAL PRIMARY KEY, ioc_type VARCHAR(40) NOT NULL, value VARCHAR(1000) NOT NULL, normalized_value VARCHAR(1000) NOT NULL, source VARCHAR(120) NOT NULL, source_reference VARCHAR(500), confidence_score INTEGER NOT NULL DEFAULT 50, risk_score INTEGER NOT NULL DEFAULT 50, severity VARCHAR(40) NOT NULL DEFAULT 'medium', tags JSON, classification VARCHAR(120), description TEXT, first_seen_at TIMESTAMP WITH TIME ZONE, last_seen_at TIMESTAMP WITH TIME ZONE, expires_at TIMESTAMP WITH TIME ZONE, is_active BOOLEAN NOT NULL DEFAULT true, raw_payload JSON, created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL, updated_at TIMESTAMP WITH TIME ZONE)",
+        "ALTER TABLE threat_iocs ADD COLUMN IF NOT EXISTS ioc_type VARCHAR(40)",
+        "ALTER TABLE threat_iocs ADD COLUMN IF NOT EXISTS value VARCHAR(1000)",
+        "ALTER TABLE threat_iocs ADD COLUMN IF NOT EXISTS normalized_value VARCHAR(1000)",
+        "ALTER TABLE threat_iocs ADD COLUMN IF NOT EXISTS source VARCHAR(120)",
+        "ALTER TABLE threat_iocs ADD COLUMN IF NOT EXISTS source_reference VARCHAR(500)",
+        "ALTER TABLE threat_iocs ADD COLUMN IF NOT EXISTS confidence_score INTEGER DEFAULT 50",
+        "ALTER TABLE threat_iocs ADD COLUMN IF NOT EXISTS risk_score INTEGER DEFAULT 50",
+        "ALTER TABLE threat_iocs ADD COLUMN IF NOT EXISTS severity VARCHAR(40) DEFAULT 'medium'",
+        "ALTER TABLE threat_iocs ADD COLUMN IF NOT EXISTS tags JSON",
+        "ALTER TABLE threat_iocs ADD COLUMN IF NOT EXISTS classification VARCHAR(120)",
+        "ALTER TABLE threat_iocs ADD COLUMN IF NOT EXISTS description TEXT",
+        "ALTER TABLE threat_iocs ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMP WITH TIME ZONE",
+        "ALTER TABLE threat_iocs ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP WITH TIME ZONE",
+        "ALTER TABLE threat_iocs ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP WITH TIME ZONE",
+        "ALTER TABLE threat_iocs ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true",
+        "ALTER TABLE threat_iocs ADD COLUMN IF NOT EXISTS raw_payload JSON",
+        "ALTER TABLE threat_iocs ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL",
+        "ALTER TABLE threat_iocs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_threat_iocs_source_type_value ON threat_iocs (source, ioc_type, normalized_value)",
+        "CREATE INDEX IF NOT EXISTS ix_threat_iocs_type_value ON threat_iocs (ioc_type, normalized_value)",
+        "CREATE INDEX IF NOT EXISTS ix_threat_iocs_expires_at ON threat_iocs (expires_at)",
+        "CREATE TABLE IF NOT EXISTS threat_ioc_links (id SERIAL PRIMARY KEY, ioc_id INTEGER NOT NULL, entity_type VARCHAR(40) NOT NULL, entity_id INTEGER NOT NULL, relationship VARCHAR(80) NOT NULL DEFAULT 'correlated_with', confidence_score INTEGER NOT NULL DEFAULT 50, created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL)",
+        "ALTER TABLE threat_ioc_links ADD COLUMN IF NOT EXISTS ioc_id INTEGER",
+        "ALTER TABLE threat_ioc_links ADD COLUMN IF NOT EXISTS entity_type VARCHAR(40)",
+        "ALTER TABLE threat_ioc_links ADD COLUMN IF NOT EXISTS entity_id INTEGER",
+        "ALTER TABLE threat_ioc_links ADD COLUMN IF NOT EXISTS relationship VARCHAR(80) DEFAULT 'correlated_with'",
+        "ALTER TABLE threat_ioc_links ADD COLUMN IF NOT EXISTS confidence_score INTEGER DEFAULT 50",
+        "ALTER TABLE threat_ioc_links ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_threat_ioc_links_unique ON threat_ioc_links (ioc_id, entity_type, entity_id, relationship)",
+        "CREATE INDEX IF NOT EXISTS ix_threat_ioc_links_entity ON threat_ioc_links (entity_type, entity_id)",
+    ]
+    _execute_schema_statements(statements, "production startup schema sync")
+
+
+def _execute_schema_statements(statements: list[str], label: str) -> None:
+    """Execute additive schema statements without letting one failure block startup."""
+    skipped = 0
+
+    for statement in statements:
+        try:
+            with engine.begin() as connection:
+                connection.execute(text(statement))
+        except SQLAlchemyError as exc:
+            skipped += 1
+            logger.warning("Skipped %s statement during %s: %s", statement.splitlines()[0][:120], label, exc)
+
+    if skipped:
+        logger.warning("%s completed with %s skipped additive statements", label, skipped)
+    else:
+        logger.info("%s completed", label)
 
 
 def _drop_not_null_if_exists(table_name: str, column_name: str) -> str:

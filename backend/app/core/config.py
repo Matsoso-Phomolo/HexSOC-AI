@@ -23,6 +23,8 @@ class Settings(BaseModel):
     abuseipdb_api_key: str | None = None
     virustotal_api_key: str | None = None
     shodan_api_key: str | None = None
+    startup_schema_sync: str = "auto"
+    database_connect_timeout_seconds: int = 10
 
 
 def _split_csv(value: str) -> list[str]:
@@ -39,9 +41,11 @@ def load_settings() -> Settings:
     if frontend_origin not in cors_origins:
         cors_origins.append(frontend_origin)
 
+    default_app_env = "production" if os.getenv("RENDER") else "development"
+
     return Settings(
         app_name=os.getenv("APP_NAME", "HexSOC AI"),
-        app_env=os.getenv("APP_ENV", "development"),
+        app_env=os.getenv("APP_ENV", default_app_env),
         api_prefix=os.getenv("API_PREFIX", "/api"),
         frontend_origin=frontend_origin,
         cors_origins=cors_origins,
@@ -56,6 +60,8 @@ def load_settings() -> Settings:
         abuseipdb_api_key=os.getenv("ABUSEIPDB_API_KEY"),
         virustotal_api_key=os.getenv("VIRUSTOTAL_API_KEY"),
         shodan_api_key=os.getenv("SHODAN_API_KEY"),
+        startup_schema_sync=os.getenv("STARTUP_SCHEMA_SYNC", "auto"),
+        database_connect_timeout_seconds=int(os.getenv("DATABASE_CONNECT_TIMEOUT_SECONDS", "10")),
     )
 
 
