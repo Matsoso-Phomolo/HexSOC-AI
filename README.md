@@ -112,6 +112,7 @@ Current Phase 4B attack-chain intelligence foundation:
 - Lightweight campaign clustering by shared source IPs, users, assets, and MITRE techniques.
 - Deterministic chain scoring for low, suspicious, high, and critical classifications.
 - Dashboard visibility for rebuilds, risk-ranked chains, timeline previews, and campaign summaries.
+- Persistent attack-chain storage with stable timeline lookup and investigation session foundations.
 
 Threat Intelligence Feed Integrator endpoints:
 
@@ -136,6 +137,10 @@ Attack Chain Intelligence endpoints:
 - `GET /api/attack-chains/{chain_id}/timeline`
 - `GET /api/campaigns`
 - `POST /api/attack-chains/rebuild`
+- `PATCH /api/attack-chains/{chain_id}/status`
+- `POST /api/investigations/from-attack-chain/{chain_id}`
+- `GET /api/investigations`
+- `PATCH /api/investigations/{session_id}`
 
 ## Production Proof
 

@@ -209,6 +209,98 @@ class ThreatIOCLink(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class AttackChain(Base, TimestampMixin):
+    """Persistent attack-chain object for investigation workflows."""
+
+    __tablename__ = "attack_chains"
+
+    id = Column(Integer, primary_key=True, index=True)
+    chain_key = Column(String(255), nullable=False, unique=True, index=True)
+    stable_fingerprint = Column(String(64), nullable=False, unique=True, index=True)
+    title = Column(String(255), nullable=False)
+    classification = Column(String(40), nullable=False, default="suspicious", index=True)
+    risk_score = Column(Integer, nullable=False, default=0, index=True)
+    confidence = Column(Integer, nullable=False, default=0)
+    status = Column(String(40), nullable=False, default="open", index=True)
+    source_type = Column(String(40), nullable=True, index=True)
+    source_value = Column(String(255), nullable=True, index=True)
+    stage_count = Column(Integer, nullable=False, default=0)
+    event_count = Column(Integer, nullable=False, default=0)
+    alert_count = Column(Integer, nullable=False, default=0)
+    first_seen = Column(DateTime(timezone=True), nullable=True, index=True)
+    last_seen = Column(DateTime(timezone=True), nullable=True, index=True)
+    mitre_techniques = Column(JSON, nullable=True)
+    mitre_tactics = Column(JSON, nullable=True)
+    related_assets = Column(JSON, nullable=True)
+    related_users = Column(JSON, nullable=True)
+    related_iocs = Column(JSON, nullable=True)
+    summary = Column(Text, nullable=True)
+    version = Column(Integer, nullable=False, default=1)
+
+
+class AttackChainStep(Base):
+    """Chronological timeline step attached to a persistent attack chain."""
+
+    __tablename__ = "attack_chain_steps"
+
+    id = Column(Integer, primary_key=True, index=True)
+    attack_chain_id = Column(Integer, ForeignKey("attack_chains.id"), nullable=False, index=True)
+    step_index = Column(Integer, nullable=False, index=True)
+    timestamp = Column(DateTime(timezone=True), nullable=True, index=True)
+    stage = Column(String(120), nullable=True, index=True)
+    event_type = Column(String(120), nullable=True, index=True)
+    severity = Column(String(40), nullable=True, index=True)
+    mitre_technique = Column(String(160), nullable=True)
+    mitre_tactic = Column(String(120), nullable=True)
+    hostname = Column(String(255), nullable=True, index=True)
+    username = Column(String(120), nullable=True, index=True)
+    source_ip = Column(String(64), nullable=True, index=True)
+    destination_ip = Column(String(64), nullable=True, index=True)
+    event_id = Column(Integer, nullable=True, index=True)
+    alert_id = Column(Integer, nullable=True, index=True)
+    description = Column(Text, nullable=True)
+    confidence = Column(Integer, nullable=True)
+    step_metadata = Column("metadata", JSON, nullable=True)
+
+
+class CampaignCluster(Base, TimestampMixin):
+    """Persistent lightweight campaign grouping over attack chains."""
+
+    __tablename__ = "campaign_clusters"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_key = Column(String(255), nullable=False, unique=True, index=True)
+    stable_fingerprint = Column(String(64), nullable=False, unique=True, index=True)
+    title = Column(String(255), nullable=False)
+    classification = Column(String(40), nullable=False, default="suspicious", index=True)
+    risk_score = Column(Integer, nullable=False, default=0, index=True)
+    chain_count = Column(Integer, nullable=False, default=0)
+    shared_iocs = Column(JSON, nullable=True)
+    shared_source_ips = Column(JSON, nullable=True)
+    shared_assets = Column(JSON, nullable=True)
+    shared_users = Column(JSON, nullable=True)
+    shared_techniques = Column(JSON, nullable=True)
+    first_seen = Column(DateTime(timezone=True), nullable=True, index=True)
+    last_seen = Column(DateTime(timezone=True), nullable=True, index=True)
+    summary = Column(Text, nullable=True)
+
+
+class InvestigationSession(Base, TimestampMixin):
+    """Analyst investigation session connected to an attack chain or campaign."""
+
+    __tablename__ = "investigation_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    attack_chain_id = Column(Integer, ForeignKey("attack_chains.id"), nullable=True, index=True)
+    campaign_cluster_id = Column(Integer, ForeignKey("campaign_clusters.id"), nullable=True, index=True)
+    title = Column(String(255), nullable=False)
+    assigned_to = Column(String(120), nullable=True, index=True)
+    status = Column(String(40), nullable=False, default="open", index=True)
+    priority = Column(String(40), nullable=True, index=True)
+    analyst_notes = Column(Text, nullable=True)
+    evidence_refs = Column(JSON, nullable=True)
+
+
 class CaseNote(Base):
     """Analyst note attached to an incident case."""
 

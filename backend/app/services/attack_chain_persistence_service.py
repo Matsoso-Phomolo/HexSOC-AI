@@ -1,0 +1,270 @@
+"""Persist computed attack-chain intelligence as stable investigation objects."""
+
+from __future__ import annotations
+
+import hashlib
+from datetime import datetime
+from typing import Any
+
+from sqlalchemy.orm import Session
+
+from app.db import models
+from app.services.campaign_cluster_engine import build_campaign_clusters
+
+
+def persist_attack_chains(db: Session, computed_chains: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Upsert computed chains and timeline steps, returning API-safe records."""
+    persisted: list[dict[str, Any]] = []
+    chain_models: list[models.AttackChain] = []
+
+    for candidate in computed_chains:
+        chain = upsert_attack_chain(db, candidate)
+        persist_attack_chain_steps(db, chain, candidate.get("timeline_steps") or [])
+        chain_models.append(chain)
+        db.flush()
+        persisted.append(serialize_attack_chain(chain))
+
+    campaigns = build_campaign_clusters([_candidate_with_persisted_id(item, chain_models[index]) for index, item in enumerate(computed_chains)], limit=50)
+    persist_campaign_clusters(db, campaigns)
+    return persisted
+
+
+def upsert_attack_chain(db: Session, candidate: dict[str, Any]) -> models.AttackChain:
+    """Create or update one persistent chain using a stable fingerprint."""
+    chain_key = _chain_key(candidate)
+    fingerprint = _fingerprint(chain_key)
+    chain = db.query(models.AttackChain).filter(models.AttackChain.stable_fingerprint == fingerprint).first()
+    signature = _change_signature(candidate)
+    existing_signature = None
+    if chain and isinstance(chain.related_iocs, dict):
+        existing_signature = chain.related_iocs.get("change_signature")
+
+    if chain is None:
+        chain = models.AttackChain(
+            chain_key=chain_key,
+            stable_fingerprint=fingerprint,
+            status="open",
+            version=1,
+        )
+        db.add(chain)
+    elif existing_signature and existing_signature != signature:
+        chain.version = (chain.version or 1) + 1
+
+    source_type, source_value = _source_parts(candidate)
+    timeline = candidate.get("timeline") or {}
+    chain.title = candidate.get("title") or "Attack chain"
+    chain.classification = candidate.get("classification") or "suspicious"
+    chain.risk_score = int(candidate.get("risk_score") or 0)
+    chain.confidence = int(candidate.get("confidence") or 0)
+    chain.source_type = source_type
+    chain.source_value = source_value
+    chain.stage_count = len(candidate.get("stages") or [])
+    chain.event_count = int((candidate.get("related_events") or {}).get("count") or 0)
+    chain.alert_count = int((candidate.get("related_alerts") or {}).get("count") or 0)
+    chain.first_seen = _parse_datetime(timeline.get("first_seen")) or chain.first_seen
+    chain.last_seen = _parse_datetime(timeline.get("last_seen")) or chain.last_seen
+    chain.mitre_techniques = candidate.get("mitre_techniques") or []
+    chain.mitre_tactics = candidate.get("mitre_tactics") or []
+    chain.related_assets = candidate.get("affected_assets") or []
+    chain.related_users = candidate.get("usernames") or []
+    chain.related_iocs = {
+        **(candidate.get("related_iocs") or {}),
+        "change_signature": signature,
+        "stages": candidate.get("stages") or [],
+    }
+    chain.summary = timeline.get("summary") or candidate.get("recommended_action")
+    return chain
+
+
+def persist_attack_chain_steps(db: Session, chain: models.AttackChain, steps: list[dict[str, Any]]) -> None:
+    """Replace timeline steps for one chain with current computed ordering."""
+    db.query(models.AttackChainStep).filter(models.AttackChainStep.attack_chain_id == chain.id).delete()
+    for index, step in enumerate(steps[:200]):
+        entity_type = step.get("entity_type")
+        entity_id = step.get("entity_id")
+        db.add(
+            models.AttackChainStep(
+                attack_chain_id=chain.id,
+                step_index=index,
+                timestamp=_parse_datetime(step.get("timestamp")),
+                stage=step.get("attack_stage"),
+                event_type=step.get("event_type"),
+                severity=step.get("severity"),
+                mitre_technique=step.get("mitre_technique") or step.get("mitre_technique_id"),
+                mitre_tactic=step.get("mitre_tactic"),
+                hostname=step.get("hostname"),
+                username=step.get("username"),
+                source_ip=step.get("source_ip"),
+                destination_ip=step.get("destination_ip"),
+                event_id=entity_id if entity_type == "event" else None,
+                alert_id=entity_id if entity_type == "alert" else None,
+                description=step.get("summary") or step.get("title"),
+                confidence=step.get("confidence"),
+                step_metadata={key: value for key, value in step.items() if key not in {"summary"}},
+            )
+        )
+
+
+def persist_campaign_clusters(db: Session, campaigns: list[dict[str, Any]]) -> list[models.CampaignCluster]:
+    """Upsert lightweight campaign clusters from current persisted chains."""
+    persisted: list[models.CampaignCluster] = []
+    for campaign in campaigns:
+        key = campaign.get("cluster_key") or campaign.get("campaign_id")
+        fingerprint = _fingerprint(str(key))
+        row = db.query(models.CampaignCluster).filter(models.CampaignCluster.stable_fingerprint == fingerprint).first()
+        if row is None:
+            row = models.CampaignCluster(campaign_key=str(key), stable_fingerprint=fingerprint)
+            db.add(row)
+        row.title = campaign.get("title") or "Campaign cluster"
+        row.classification = campaign.get("classification") or "suspicious"
+        row.risk_score = int(campaign.get("max_risk_score") or 0)
+        row.chain_count = int(campaign.get("chain_count") or 0)
+        row.shared_iocs = campaign.get("shared_iocs") or []
+        row.shared_source_ips = campaign.get("source_ips") or []
+        row.shared_assets = campaign.get("affected_assets") or []
+        row.shared_users = campaign.get("usernames") or []
+        row.shared_techniques = campaign.get("mitre_techniques") or []
+        row.first_seen = _parse_datetime(campaign.get("first_seen")) or row.first_seen
+        row.last_seen = _parse_datetime(campaign.get("last_seen")) or row.last_seen
+        row.summary = campaign.get("summary")
+        persisted.append(row)
+    return persisted
+
+
+def serialize_attack_chain(chain: models.AttackChain) -> dict[str, Any]:
+    """Convert a persistent chain to the dashboard API shape."""
+    return {
+        "id": chain.id,
+        "chain_id": str(chain.id),
+        "stable_fingerprint": chain.stable_fingerprint,
+        "title": chain.title,
+        "classification": chain.classification,
+        "risk_score": chain.risk_score,
+        "confidence": chain.confidence,
+        "status": chain.status,
+        "primary_group": f"{chain.source_type}:{chain.source_value}" if chain.source_type and chain.source_value else chain.chain_key,
+        "primary_source_ip": chain.source_value if chain.source_type == "source_ip" else None,
+        "source_type": chain.source_type,
+        "source_value": chain.source_value,
+        "related_source_ips": [chain.source_value] if chain.source_type == "source_ip" and chain.source_value else [],
+        "usernames": chain.related_users or [],
+        "affected_assets": chain.related_assets or [],
+        "related_events": {"count": chain.event_count, "ids": []},
+        "related_alerts": {"count": chain.alert_count, "ids": []},
+        "related_iocs": chain.related_iocs or {"count": 0},
+        "stages": _steps_from_count(chain),
+        "mitre_tactics": chain.mitre_tactics or [],
+        "mitre_techniques": chain.mitre_techniques or [],
+        "timeline": {
+            "total_steps": chain.stage_count,
+            "first_seen": _iso(chain.first_seen),
+            "last_seen": _iso(chain.last_seen),
+            "stages": _steps_from_count(chain),
+            "highest_severity": chain.classification,
+            "summary": chain.summary,
+        },
+        "severity": chain.classification,
+        "recommended_action": chain.summary,
+        "version": chain.version,
+    }
+
+
+def serialize_attack_chain_step(step: models.AttackChainStep) -> dict[str, Any]:
+    """Convert a persistent chain step into the existing timeline response shape."""
+    return {
+        "step_id": f"step:{step.id}",
+        "entity_type": "event" if step.event_id else "alert" if step.alert_id else "step",
+        "entity_id": step.event_id or step.alert_id or step.id,
+        "timestamp": _iso(step.timestamp),
+        "event_type": step.event_type,
+        "title": step.description,
+        "severity": step.severity,
+        "attack_stage": step.stage,
+        "mitre_tactic": step.mitre_tactic,
+        "mitre_technique": step.mitre_technique,
+        "mitre_technique_id": step.mitre_technique,
+        "hostname": step.hostname,
+        "username": step.username,
+        "source_ip": step.source_ip,
+        "destination_ip": step.destination_ip,
+        "summary": step.description,
+    }
+
+
+def serialize_campaign(campaign: models.CampaignCluster) -> dict[str, Any]:
+    """Convert a persistent campaign cluster to a dashboard API shape."""
+    return {
+        "id": campaign.id,
+        "campaign_id": str(campaign.id),
+        "stable_fingerprint": campaign.stable_fingerprint,
+        "cluster_key": campaign.campaign_key,
+        "title": campaign.title,
+        "classification": campaign.classification,
+        "max_risk_score": campaign.risk_score,
+        "risk_score": campaign.risk_score,
+        "chain_count": campaign.chain_count,
+        "source_ips": campaign.shared_source_ips or [],
+        "shared_iocs": campaign.shared_iocs or [],
+        "affected_assets": campaign.shared_assets or [],
+        "usernames": campaign.shared_users or [],
+        "mitre_techniques": campaign.shared_techniques or [],
+        "first_seen": _iso(campaign.first_seen),
+        "last_seen": _iso(campaign.last_seen),
+        "summary": campaign.summary,
+    }
+
+
+def _candidate_with_persisted_id(candidate: dict[str, Any], chain: models.AttackChain) -> dict[str, Any]:
+    next_candidate = dict(candidate)
+    next_candidate["chain_id"] = str(chain.id)
+    return next_candidate
+
+
+def _chain_key(candidate: dict[str, Any]) -> str:
+    source_type, source_value = _source_parts(candidate)
+    return f"{source_type}:{source_value}"
+
+
+def _source_parts(candidate: dict[str, Any]) -> tuple[str, str]:
+    primary = candidate.get("primary_group") or ""
+    if ":" in primary:
+        source_type, source_value = primary.split(":", 1)
+        return source_type, source_value
+    if candidate.get("primary_source_ip"):
+        return "source_ip", candidate["primary_source_ip"]
+    return "mixed", primary or candidate.get("title") or "unknown"
+
+
+def _change_signature(candidate: dict[str, Any]) -> str:
+    parts = [
+        str(candidate.get("risk_score") or 0),
+        ",".join(str(item) for item in (candidate.get("related_events") or {}).get("ids", [])),
+        ",".join(str(item) for item in (candidate.get("related_alerts") or {}).get("ids", [])),
+        ",".join(candidate.get("stages") or []),
+    ]
+    return _fingerprint("|".join(parts))
+
+
+def _fingerprint(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and value:
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return None
+
+
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _steps_from_count(chain: models.AttackChain) -> list[str]:
+    if isinstance(chain.related_iocs, dict) and chain.related_iocs.get("stages"):
+        return chain.related_iocs["stages"]
+    return []
