@@ -105,6 +105,13 @@ Current Phase 4A.1 threat intelligence foundation:
 - Automated threat-intelligence correlation pipeline for IOC extraction, local matching, graph relationships, and risk amplification.
 - Provider adapters remain modular for VirusTotal, AbuseIPDB, OTX, Shodan, GreyNoise, and MISP.
 
+Current Phase 4B attack-chain intelligence foundation:
+
+- Bounded attack-chain reconstruction from stored events, alerts, MITRE metadata, IOC links, and assets.
+- Replay-ready timeline steps for future investigation playback.
+- Lightweight campaign clustering by shared source IPs, users, assets, and MITRE techniques.
+- Deterministic chain scoring for low, suspicious, high, and critical classifications.
+
 Threat Intelligence Feed Integrator endpoints:
 
 - `GET /api/threat-intel/iocs`
@@ -120,6 +127,14 @@ Threat Intelligence Feed Integrator endpoints:
 - `POST /api/threat-intel/auto-correlate`
 - `GET /api/threat-intel/correlation-summary`
 - `GET /api/threat-intel/risk-hotspots`
+
+Attack Chain Intelligence endpoints:
+
+- `GET /api/attack-chains`
+- `GET /api/attack-chains/{chain_id}`
+- `GET /api/attack-chains/{chain_id}/timeline`
+- `GET /api/campaigns`
+- `POST /api/attack-chains/rebuild`
 
 ## Production Proof
 
