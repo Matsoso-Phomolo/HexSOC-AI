@@ -22,7 +22,13 @@ class Settings(BaseModel):
     demo_seed_token: str | None = None
     abuseipdb_api_key: str | None = None
     virustotal_api_key: str | None = None
+    otx_api_key: str | None = None
+    misp_url: str | None = None
+    misp_api_key: str | None = None
     shodan_api_key: str | None = None
+    threat_intel_provider_timeout_seconds: int = 8
+    threat_intel_provider_cache_ttl_seconds: int = 900
+    threat_intel_provider_max_lookups_per_request: int = 25
     startup_schema_sync: str = "auto"
     database_connect_timeout_seconds: int = 10
 
@@ -59,7 +65,13 @@ def load_settings() -> Settings:
         demo_seed_token=os.getenv("DEMO_SEED_TOKEN"),
         abuseipdb_api_key=os.getenv("ABUSEIPDB_API_KEY"),
         virustotal_api_key=os.getenv("VIRUSTOTAL_API_KEY"),
+        otx_api_key=os.getenv("OTX_API_KEY"),
+        misp_url=os.getenv("MISP_URL"),
+        misp_api_key=os.getenv("MISP_API_KEY"),
         shodan_api_key=os.getenv("SHODAN_API_KEY"),
+        threat_intel_provider_timeout_seconds=int(os.getenv("THREAT_INTEL_PROVIDER_TIMEOUT_SECONDS", "8")),
+        threat_intel_provider_cache_ttl_seconds=int(os.getenv("THREAT_INTEL_PROVIDER_CACHE_TTL_SECONDS", "900")),
+        threat_intel_provider_max_lookups_per_request=int(os.getenv("THREAT_INTEL_PROVIDER_MAX_LOOKUPS_PER_REQUEST", "25")),
         startup_schema_sync=os.getenv("STARTUP_SCHEMA_SYNC", "auto"),
         database_connect_timeout_seconds=int(os.getenv("DATABASE_CONNECT_TIMEOUT_SECONDS", "10")),
     )

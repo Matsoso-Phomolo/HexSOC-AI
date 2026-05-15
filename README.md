@@ -55,6 +55,14 @@ Optional environment variables:
 - `API_PREFIX=/api`
 - `KAFKA_BOOTSTRAP_SERVERS=<future production Kafka bootstrap servers>`
 - `SHODAN_API_KEY=<future integration key>`
+- `VIRUSTOTAL_API_KEY=<optional provider key>`
+- `ABUSEIPDB_API_KEY=<optional provider key>`
+- `OTX_API_KEY=<optional provider key>`
+- `MISP_URL=<optional MISP base URL>`
+- `MISP_API_KEY=<optional provider key>`
+- `THREAT_INTEL_PROVIDER_TIMEOUT_SECONDS=8`
+- `THREAT_INTEL_PROVIDER_CACHE_TTL_SECONDS=900`
+- `THREAT_INTEL_PROVIDER_MAX_LOOKUPS_PER_REQUEST=25`
 - `OPENAI_API_KEY=<future AI integration key>`
 
 Admin recovery:
@@ -102,6 +110,7 @@ Current Phase 4A.1 threat intelligence foundation:
 - IOC correlation results prepared for alert, event, asset, and graph relationships.
 - Graph-native IOC relationship enrichment with weighted edges and bounded graph payloads.
 - Dashboard IOC Investigation panel for search, bounded correlation, relationship summaries, and graph enrichment previews.
+- Real threat provider adapter foundations for VirusTotal, AbuseIPDB, OTX, and MISP with explicit, bounded enrichment calls.
 - Provider adapters remain modular for VirusTotal, AbuseIPDB, OTX, Shodan, GreyNoise, and MISP.
 
 Threat Intelligence Feed Integrator endpoints:
@@ -116,6 +125,8 @@ Threat Intelligence Feed Integrator endpoints:
 - `POST /api/threat-intel/graph-enrich`
 - `GET /api/threat-intel/relationship-summary`
 - `GET /api/graph/ioc-relationships`
+- `POST /api/threat-intel/enrich`
+- `GET /api/threat-intel/providers/status`
 
 ## Production Proof
 

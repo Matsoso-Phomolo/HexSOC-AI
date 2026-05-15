@@ -162,6 +162,26 @@ class IOCRelationshipSummary(BaseModel):
     top_ioc_types: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class ThreatProviderEnrichRequest(BaseModel):
+    """Explicit threat provider enrichment request."""
+
+    indicators: list[str] = Field(default_factory=list, max_length=100)
+    providers: list[Literal["virustotal", "abuseipdb", "otx", "misp"]] | None = None
+    persist: bool = False
+
+
+class ThreatProviderEnrichResponse(BaseModel):
+    """Provider-neutral enrichment response."""
+
+    total_received: int
+    enriched: int
+    skipped: int
+    provider_errors: list[dict[str, str]]
+    results: list[dict[str, Any]]
+    persisted: dict[str, Any] | None = None
+    limits: dict[str, Any]
+
+
 class IOCCorrelationResponse(BaseModel):
     """Summary for IOC correlation across SOC entities."""
 
