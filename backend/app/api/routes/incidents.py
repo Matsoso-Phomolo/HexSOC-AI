@@ -5,7 +5,14 @@ from app.api.deps import get_db
 from app.db import models
 from app.schemas.incident import IncidentCreate, IncidentRead, IncidentStatusUpdate
 from app.services.activity_service import add_activity
+from app.services.attack_chain_persistence_service import serialize_attack_chain, serialize_campaign
 from app.services.auth_service import require_role
+from app.services.incident_escalation_engine import escalate_attack_chain, escalate_campaign, escalate_context
+from app.services.investigation_recommendation_engine import (
+    recommend_for_attack_chain,
+    recommend_for_campaign,
+    recommend_for_context,
+)
 from app.services.websocket_manager import serialize_activity, websocket_manager
 
 router = APIRouter()
@@ -84,3 +91,115 @@ async def update_incident_status(
     await websocket_manager.broadcast_event("incident_updated", {"incident_id": incident.id, "status": incident.status})
     await websocket_manager.broadcast_dashboard_metrics(db)
     return incident
+
+
+@router.post("/escalate/attack-chain/{chain_id}", summary="Escalate attack chain to incident")
+async def escalate_attack_chain_incident(
+    chain_id: str,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(require_role("analyst")),
+) -> dict:
+    """Create or update an incident from a critical attack chain."""
+    chain = _load_attack_chain(db, chain_id)
+    if not chain:
+        raise HTTPException(status_code=404, detail="Attack chain not found")
+    chain_payload = serialize_attack_chain(chain)
+    recommendation = recommend_for_attack_chain(chain_payload)
+    result = escalate_attack_chain(db, chain_payload, recommendation)
+    await _finalize_escalation(db, user, result)
+    return result
+
+
+@router.post("/escalate/campaign/{campaign_id}", summary="Escalate campaign to incident")
+async def escalate_campaign_incident(
+    campaign_id: str,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(require_role("analyst")),
+) -> dict:
+    """Create or update an incident from a high-risk campaign cluster."""
+    campaign = _load_campaign(db, campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign cluster not found")
+    campaign_payload = serialize_campaign(campaign)
+    recommendation = recommend_for_campaign(campaign_payload)
+    result = escalate_campaign(db, campaign_payload, recommendation)
+    await _finalize_escalation(db, user, result)
+    return result
+
+
+@router.post("/escalate/context", summary="Escalate supplied context to incident")
+async def escalate_context_incident(
+    payload: dict,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(require_role("analyst")),
+) -> dict:
+    """Create or update an incident from bounded caller-supplied context."""
+    entity_type = str(payload.get("entity_type") or "context")
+    entity_id = str(payload.get("entity_id") or "ad_hoc")
+    context = payload.get("context") or payload.get("payload") or {}
+    if not isinstance(context, dict):
+        raise HTTPException(status_code=400, detail="context must be an object")
+    recommendation = payload.get("recommendation")
+    if not isinstance(recommendation, dict):
+        recommendation = recommend_for_context(entity_type, entity_id, context)
+    result = escalate_context(db, entity_type=entity_type, entity_id=entity_id, context=context, recommendation=recommendation)
+    await _finalize_escalation(db, user, result)
+    return result
+
+
+async def _finalize_escalation(db: Session, user: models.User, result: dict) -> None:
+    severity = "critical" if result.get("priority") == "critical" else "high" if result.get("escalated") else "info"
+    action = "incident_escalated" if result.get("escalated") else "incident_escalation_skipped"
+    activity = add_activity(
+        db,
+        action=action,
+        entity_type="incident",
+        entity_id=result.get("incident_id"),
+        message=result.get("reason") or "Incident escalation evaluated.",
+        severity=severity,
+        actor_username=user.username,
+        actor_role=user.role,
+    )
+    db.commit()
+    if result.get("incident_id"):
+        incident = db.get(models.Incident, result["incident_id"])
+        if incident:
+            db.refresh(incident)
+    db.refresh(activity)
+    await websocket_manager.broadcast_activity({"type": "activity_created", "activity": serialize_activity(activity)})
+    await websocket_manager.broadcast_event(
+        "incident_escalated",
+        {
+            "incident_id": result.get("incident_id"),
+            "created": result.get("created"),
+            "linked_entity_type": result.get("linked_entity_type"),
+            "linked_entity_id": result.get("linked_entity_id"),
+        },
+    )
+    await websocket_manager.broadcast_dashboard_metrics(db)
+
+
+def _load_attack_chain(db: Session, chain_id: str) -> models.AttackChain | None:
+    if chain_id.isdigit():
+        return db.query(models.AttackChain).filter(models.AttackChain.id == int(chain_id)).first()
+    return (
+        db.query(models.AttackChain)
+        .filter(
+            (models.AttackChain.stable_fingerprint == chain_id)
+            | (models.AttackChain.chain_key == chain_id)
+        )
+        .first()
+    )
+
+
+def _load_campaign(db: Session, campaign_id: str) -> models.CampaignCluster | None:
+    if campaign_id.isdigit():
+        return db.query(models.CampaignCluster).filter(models.CampaignCluster.id == int(campaign_id)).first()
+    return (
+        db.query(models.CampaignCluster)
+        .filter(
+            (models.CampaignCluster.stable_fingerprint == campaign_id)
+            | (models.CampaignCluster.campaign_key == campaign_id)
+        )
+        .first()
+    )
