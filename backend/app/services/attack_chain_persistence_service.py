@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from datetime import datetime
 from enum import Enum
 from typing import Any
@@ -12,22 +13,85 @@ from sqlalchemy.orm import Session
 from app.db import models
 from app.services.campaign_cluster_engine import build_campaign_clusters
 
+logger = logging.getLogger(__name__)
+
 
 def persist_attack_chains(db: Session, computed_chains: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Upsert computed chains and timeline steps, returning API-safe records."""
+    return materialize_attack_chains(db, computed_chains)["chains"]
+
+
+def materialize_attack_chains(db: Session, computed_chains: list[dict[str, Any]]) -> dict[str, Any]:
+    """Persist computed candidates with per-record isolation and materialization stats."""
     persisted: list[dict[str, Any]] = []
     chain_models: list[models.AttackChain] = []
+    successful_candidates: list[dict[str, Any]] = []
+    persistence_errors: list[dict[str, Any]] = []
+    steps_persisted = 0
+    campaigns_persisted = 0
 
-    for candidate in computed_chains:
-        chain = upsert_attack_chain(db, candidate)
-        persist_attack_chain_steps(db, chain, candidate.get("timeline_steps") or [])
-        chain_models.append(chain)
-        db.flush()
-        persisted.append(serialize_attack_chain(chain))
+    logger.info("Attack-chain persistence received %s computed candidates", len(computed_chains))
 
-    campaigns = build_campaign_clusters([_candidate_with_persisted_id(item, chain_models[index]) for index, item in enumerate(computed_chains)], limit=50)
-    persist_campaign_clusters(db, campaigns)
-    return persisted
+    for index, candidate in enumerate(computed_chains):
+        try:
+            with db.begin_nested():
+                chain = upsert_attack_chain(db, candidate)
+                db.flush()
+                step_count = persist_attack_chain_steps(db, chain, candidate.get("timeline_steps") or [])
+                db.flush()
+            chain_models.append(chain)
+            successful_candidates.append(candidate)
+            steps_persisted += step_count
+            persisted.append(serialize_attack_chain(chain))
+            logger.info(
+                "Attack-chain candidate materialized index=%s chain_id=%s steps=%s fingerprint=%s",
+                index,
+                chain.id,
+                step_count,
+                chain.stable_fingerprint,
+            )
+        except Exception as exc:
+            logger.exception("Skipping invalid attack-chain candidate index=%s: %s", index, exc)
+            persistence_errors.append(
+                {
+                    "index": index,
+                    "chain_id": candidate.get("chain_id"),
+                    "primary_group": candidate.get("primary_group"),
+                    "error": exc.__class__.__name__,
+                }
+            )
+
+    try:
+        campaign_inputs = [
+            _candidate_with_persisted_id(item, chain_models[index])
+            for index, item in enumerate(successful_candidates)
+        ]
+        campaigns = build_campaign_clusters(campaign_inputs, limit=50)
+        with db.begin_nested():
+            campaign_models = persist_campaign_clusters(db, campaigns)
+            db.flush()
+        campaigns_persisted = len(campaign_models)
+        logger.info("Attack-chain campaign materialization inserted_or_updated=%s", campaigns_persisted)
+    except Exception as exc:
+        logger.exception("Campaign cluster materialization failed; preserving persisted chains: %s", exc)
+        persistence_errors.append({"index": None, "chain_id": None, "primary_group": "campaign_clusters", "error": exc.__class__.__name__})
+
+    logger.info(
+        "Attack-chain materialization complete generated=%s persisted=%s steps=%s campaigns=%s errors=%s",
+        len(computed_chains),
+        len(persisted),
+        steps_persisted,
+        campaigns_persisted,
+        len(persistence_errors),
+    )
+    return {
+        "chains_generated": len(computed_chains),
+        "chains_persisted": len(persisted),
+        "steps_persisted": steps_persisted,
+        "campaigns_persisted": campaigns_persisted,
+        "persistence_errors": persistence_errors,
+        "chains": persisted,
+    }
 
 
 def upsert_attack_chain(db: Session, candidate: dict[str, Any]) -> models.AttackChain:
@@ -53,33 +117,36 @@ def upsert_attack_chain(db: Session, candidate: dict[str, Any]) -> models.Attack
 
     source_type, source_value = _source_parts(candidate)
     timeline = candidate.get("timeline") or {}
-    chain.title = candidate.get("title") or "Attack chain"
+    chain.title = _truncate(candidate.get("title") or "Attack chain", 255)
     chain.classification = candidate.get("classification") or "suspicious"
     chain.risk_score = int(candidate.get("risk_score") or 0)
     chain.confidence = int(candidate.get("confidence") or 0)
     chain.source_type = source_type
-    chain.source_value = source_value
+    chain.source_value = _truncate(source_value, 255)
     chain.stage_count = len(candidate.get("stages") or [])
     chain.event_count = int((candidate.get("related_events") or {}).get("count") or 0)
     chain.alert_count = int((candidate.get("related_alerts") or {}).get("count") or 0)
     chain.first_seen = _parse_datetime(timeline.get("first_seen")) or chain.first_seen
     chain.last_seen = _parse_datetime(timeline.get("last_seen")) or chain.last_seen
-    chain.mitre_techniques = candidate.get("mitre_techniques") or []
-    chain.mitre_tactics = candidate.get("mitre_tactics") or []
-    chain.related_assets = candidate.get("affected_assets") or []
-    chain.related_users = candidate.get("usernames") or []
+    chain.mitre_techniques = _safe_list(candidate.get("mitre_techniques"))[:50]
+    chain.mitre_tactics = _safe_list(candidate.get("mitre_tactics"))[:50]
+    chain.related_assets = _safe_json(_safe_list(candidate.get("affected_assets"))[:50])
+    chain.related_users = _safe_list(candidate.get("usernames"))[:50]
     chain.related_iocs = {
-        **(candidate.get("related_iocs") or {}),
+        **_safe_dict(candidate.get("related_iocs")),
         "change_signature": signature,
-        "stages": candidate.get("stages") or [],
+        "stages": _safe_list(candidate.get("stages"))[:50],
     }
     chain.summary = timeline.get("summary") or candidate.get("recommended_action")
     return chain
 
 
-def persist_attack_chain_steps(db: Session, chain: models.AttackChain, steps: list[dict[str, Any]]) -> None:
+def persist_attack_chain_steps(db: Session, chain: models.AttackChain, steps: list[dict[str, Any]]) -> int:
     """Replace timeline steps for one chain with current computed ordering."""
+    if chain.id is None:
+        db.flush()
     db.query(models.AttackChainStep).filter(models.AttackChainStep.attack_chain_id == chain.id).delete()
+    inserted = 0
     for index, step in enumerate(steps[:200]):
         entity_type = step.get("entity_type")
         entity_id = step.get("entity_id")
@@ -97,13 +164,15 @@ def persist_attack_chain_steps(db: Session, chain: models.AttackChain, steps: li
                 username=step.get("username"),
                 source_ip=step.get("source_ip"),
                 destination_ip=step.get("destination_ip"),
-                event_id=entity_id if entity_type == "event" else None,
-                alert_id=entity_id if entity_type == "alert" else None,
+                event_id=_safe_int(entity_id) if entity_type == "event" else None,
+                alert_id=_safe_int(entity_id) if entity_type == "alert" else None,
                 description=step.get("summary") or step.get("title"),
-                confidence=step.get("confidence"),
-                step_metadata={key: value for key, value in step.items() if key not in {"summary"}},
+                confidence=_safe_int(step.get("confidence")),
+                step_metadata=_safe_json({key: value for key, value in step.items() if key not in {"summary"}}),
             )
         )
+        inserted += 1
+    return inserted
 
 
 def persist_campaign_clusters(db: Session, campaigns: list[dict[str, Any]]) -> list[models.CampaignCluster]:
@@ -114,17 +183,17 @@ def persist_campaign_clusters(db: Session, campaigns: list[dict[str, Any]]) -> l
         fingerprint = _fingerprint(str(key))
         row = db.query(models.CampaignCluster).filter(models.CampaignCluster.stable_fingerprint == fingerprint).first()
         if row is None:
-            row = models.CampaignCluster(campaign_key=str(key), stable_fingerprint=fingerprint)
+            row = models.CampaignCluster(campaign_key=_truncate(str(key), 255), stable_fingerprint=fingerprint)
             db.add(row)
-        row.title = campaign.get("title") or "Campaign cluster"
+        row.title = _truncate(campaign.get("title") or "Campaign cluster", 255)
         row.classification = campaign.get("classification") or "suspicious"
         row.risk_score = int(campaign.get("max_risk_score") or 0)
         row.chain_count = int(campaign.get("chain_count") or 0)
-        row.shared_iocs = campaign.get("shared_iocs") or []
-        row.shared_source_ips = campaign.get("source_ips") or []
-        row.shared_assets = campaign.get("affected_assets") or []
-        row.shared_users = campaign.get("usernames") or []
-        row.shared_techniques = campaign.get("mitre_techniques") or []
+        row.shared_iocs = _safe_json(_safe_list(campaign.get("shared_iocs"))[:50])
+        row.shared_source_ips = _safe_list(campaign.get("source_ips"))[:50]
+        row.shared_assets = _safe_json(_safe_list(campaign.get("affected_assets"))[:50])
+        row.shared_users = _safe_list(campaign.get("usernames"))[:50]
+        row.shared_techniques = _safe_list(campaign.get("mitre_techniques"))[:50]
         row.first_seen = _parse_datetime(campaign.get("first_seen")) or row.first_seen
         row.last_seen = _parse_datetime(campaign.get("last_seen")) or row.last_seen
         row.summary = campaign.get("summary")
@@ -223,7 +292,7 @@ def _candidate_with_persisted_id(candidate: dict[str, Any], chain: models.Attack
 
 def _chain_key(candidate: dict[str, Any]) -> str:
     source_type, source_value = _source_parts(candidate)
-    return f"{source_type}:{source_value}"
+    return _truncate(f"{source_type}:{source_value}", 255)
 
 
 def _source_parts(candidate: dict[str, Any]) -> tuple[str, str]:
@@ -248,6 +317,18 @@ def _change_signature(candidate: dict[str, Any]) -> str:
 
 def _fingerprint(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _safe_int(value: Any) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _truncate(value: Any, limit: int) -> str:
+    text = str(value or "")
+    return text[:limit]
 
 
 def _parse_datetime(value: Any) -> datetime | None:

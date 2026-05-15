@@ -51,10 +51,148 @@ graph_relationships = _load_module(
 serialize_attack_chain = attack_serializers.serialize_attack_chain
 serialize_attack_chain_step = attack_serializers.serialize_attack_chain_step
 serialize_campaign = attack_serializers.serialize_campaign
+materialize_attack_chains = attack_serializers.materialize_attack_chains
 build_relationship = graph_relationships.build_relationship
 
 
+class FakeAttackChain:
+    stable_fingerprint = ""
+
+    def __init__(self, **kwargs):
+        self.id = None
+        self.created_at = None
+        self.updated_at = None
+        self.title = None
+        self.classification = None
+        self.risk_score = None
+        self.confidence = None
+        self.source_type = None
+        self.source_value = None
+        self.stage_count = None
+        self.event_count = None
+        self.alert_count = None
+        self.first_seen = None
+        self.last_seen = None
+        self.mitre_techniques = None
+        self.mitre_tactics = None
+        self.related_assets = None
+        self.related_users = None
+        self.related_iocs = None
+        self.summary = None
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+
+class FakeAttackChainStep:
+    attack_chain_id = None
+
+    def __init__(self, **kwargs):
+        self.id = None
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+
+class FakeCampaignCluster:
+    stable_fingerprint = ""
+
+    def __init__(self, **kwargs):
+        self.id = None
+        self.title = None
+        self.classification = None
+        self.risk_score = None
+        self.chain_count = None
+        self.shared_iocs = None
+        self.shared_source_ips = None
+        self.shared_assets = None
+        self.shared_users = None
+        self.shared_techniques = None
+        self.first_seen = None
+        self.last_seen = None
+        self.summary = None
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+
+class FakeQuery:
+    def __init__(self, session, model):
+        self.session = session
+        self.model = model
+
+    def filter(self, *_args, **_kwargs):
+        return self
+
+    def first(self):
+        if self.model is FakeAttackChain:
+            return self.session.chains[0] if self.session.chains else None
+        if self.model is FakeCampaignCluster:
+            return self.session.campaigns[0] if self.session.campaigns else None
+        return None
+
+    def delete(self):
+        if self.model is FakeAttackChainStep:
+            self.session.steps.clear()
+        return 0
+
+
+class FakeNestedTransaction:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+
+class FakeSession:
+    def __init__(self):
+        self.chains = []
+        self.steps = []
+        self.campaigns = []
+
+    def query(self, model):
+        return FakeQuery(self, model)
+
+    def add(self, item):
+        if isinstance(item, FakeAttackChain) and item not in self.chains:
+            self.chains.append(item)
+        elif isinstance(item, FakeAttackChainStep):
+            self.steps.append(item)
+        elif isinstance(item, FakeCampaignCluster) and item not in self.campaigns:
+            self.campaigns.append(item)
+
+    def flush(self):
+        for collection in [self.chains, self.steps, self.campaigns]:
+            for item in collection:
+                if item.id is None:
+                    item.id = len([entry for entry in collection if entry.id is not None]) + 1
+
+    def begin_nested(self):
+        return FakeNestedTransaction()
+
+
 class AttackChainSerializationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.original_models = attack_serializers.models
+        self.original_campaign_builder = attack_serializers.build_campaign_clusters
+        attack_serializers.models = SimpleNamespace(
+            AttackChain=FakeAttackChain,
+            AttackChainStep=FakeAttackChainStep,
+            CampaignCluster=FakeCampaignCluster,
+        )
+        attack_serializers.build_campaign_clusters = lambda *_args, **_kwargs: [
+            {
+                "cluster_key": "campaign:203.0.113.45",
+                "title": "Campaign",
+                "classification": "high",
+                "max_risk_score": 80,
+                "chain_count": 1,
+                "source_ips": ["203.0.113.45"],
+            }
+        ]
+
+    def tearDown(self) -> None:
+        attack_serializers.models = self.original_models
+        attack_serializers.build_campaign_clusters = self.original_campaign_builder
+
     def test_empty_chain_lists_are_serialized_as_lists(self) -> None:
         chain = SimpleNamespace(
             id=1,
@@ -153,6 +291,77 @@ class AttackChainSerializationTests(unittest.TestCase):
 
         self.assertEqual(edge["first_seen"], "2026-05-15T10:00:00")
         self.assertEqual(edge["last_seen"], "2026-05-15T11:00:00")
+
+    def test_attack_chain_materialization_persists_chain_steps_and_campaign(self) -> None:
+        session = FakeSession()
+        candidate = _candidate()
+
+        result = materialize_attack_chains(session, [candidate])
+
+        self.assertEqual(result["chains_generated"], 1)
+        self.assertEqual(result["chains_persisted"], 1)
+        self.assertEqual(result["steps_persisted"], 2)
+        self.assertEqual(result["campaigns_persisted"], 1)
+        self.assertEqual(result["persistence_errors"], [])
+        self.assertEqual(len(session.chains), 1)
+        self.assertEqual(len(session.steps), 2)
+        self.assertTrue(all(step.attack_chain_id == session.chains[0].id for step in session.steps))
+
+    def test_duplicate_rebuild_updates_existing_chain(self) -> None:
+        session = FakeSession()
+        candidate = _candidate()
+
+        first = materialize_attack_chains(session, [candidate])
+        second = materialize_attack_chains(session, [candidate])
+
+        self.assertEqual(first["chains_persisted"], 1)
+        self.assertEqual(second["chains_persisted"], 1)
+        self.assertEqual(len(session.chains), 1)
+        self.assertEqual(len(session.steps), 2)
+
+
+def _candidate() -> dict:
+    return {
+        "chain_id": "chain:test",
+        "title": "Source IP 203.0.113.45 attack chain",
+        "primary_group": "source_ip:203.0.113.45",
+        "related_events": {"count": 2, "ids": [1, 2]},
+        "related_alerts": {"count": 1, "ids": [3]},
+        "related_iocs": {"count": 1},
+        "affected_assets": [{"id": 1, "hostname": "prod-web-01"}],
+        "usernames": ["svc_backup"],
+        "stages": ["Initial Access", "Command and Control"],
+        "mitre_tactics": ["Credential Access"],
+        "mitre_techniques": ["T1110"],
+        "timeline": {
+            "first_seen": "2026-05-15T10:00:00",
+            "last_seen": "2026-05-15T10:02:00",
+            "summary": "Observed Initial Access.",
+        },
+        "risk_score": 88,
+        "confidence": 90,
+        "classification": "critical",
+        "timeline_steps": [
+            {
+                "entity_type": "event",
+                "entity_id": 1,
+                "timestamp": "2026-05-15T10:00:00",
+                "event_type": "failed_login",
+                "severity": "high",
+                "attack_stage": "Initial Access",
+                "summary": "Failed login spike",
+            },
+            {
+                "entity_type": "alert",
+                "entity_id": 3,
+                "timestamp": "2026-05-15T10:02:00",
+                "event_type": "malware_indicator",
+                "severity": "critical",
+                "attack_stage": "Command and Control",
+                "summary": "Malware beacon",
+            },
+        ],
+    }
 
 
 if __name__ == "__main__":

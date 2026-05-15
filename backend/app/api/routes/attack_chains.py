@@ -13,7 +13,7 @@ from app.db.database import ensure_attack_chain_schema
 from app.services.activity_service import add_activity
 from app.services.attack_chain_engine import build_attack_chains
 from app.services.attack_chain_persistence_service import (
-    persist_attack_chains,
+    materialize_attack_chains,
     serialize_attack_chain,
     serialize_attack_chain_step,
     serialize_campaign,
@@ -35,7 +35,9 @@ async def rebuild_attack_chain_intelligence(
     """Compute bounded candidates and persist them as stable investigation objects."""
     try:
         computed = build_attack_chains(db, limit=limit)
-        persisted = persist_attack_chains(db, computed)
+        logger.info("Attack-chain rebuild generated %s computed candidates", len(computed))
+        materialization = materialize_attack_chains(db, computed)
+        persisted = materialization["chains"]
     except Exception as exc:
         db.rollback()
         logger.exception("Attack-chain rebuild failed before persistence: %s", exc)
@@ -47,7 +49,12 @@ async def rebuild_attack_chain_intelligence(
         return {
             **fallback,
             "chains_found": 0,
+            "chains_generated": 0,
+            "chains_persisted": 0,
+            "steps_persisted": 0,
+            "campaigns_persisted": 0,
             "persisted": 0,
+            "persistence_errors": [{"error": exc.__class__.__name__}],
             "highest_risk_score": 0,
             "critical_chains": 0,
             "high_chains": 0,
@@ -70,6 +77,14 @@ async def rebuild_attack_chain_intelligence(
     try:
         db.commit()
         db.refresh(activity)
+        logger.info(
+            "Attack-chain rebuild commit succeeded generated=%s persisted=%s steps=%s campaigns=%s errors=%s",
+            materialization["chains_generated"],
+            materialization["chains_persisted"],
+            materialization["steps_persisted"],
+            materialization["campaigns_persisted"],
+            len(materialization["persistence_errors"]),
+        )
     except SQLAlchemyError as exc:
         db.rollback()
         logger.exception("Attack-chain rebuild commit failed: %s", exc)
@@ -77,7 +92,12 @@ async def rebuild_attack_chain_intelligence(
         return {
             **fallback,
             "chains_found": 0,
+            "chains_generated": materialization.get("chains_generated", 0),
+            "chains_persisted": 0,
+            "steps_persisted": 0,
+            "campaigns_persisted": 0,
             "persisted": 0,
+            "persistence_errors": [*materialization.get("persistence_errors", []), {"error": exc.__class__.__name__}],
             "highest_risk_score": 0,
             "critical_chains": 0,
             "high_chains": 0,
@@ -85,7 +105,12 @@ async def rebuild_attack_chain_intelligence(
 
     result = {
         "chains_found": len(persisted),
+        "chains_generated": materialization["chains_generated"],
+        "chains_persisted": materialization["chains_persisted"],
+        "steps_persisted": materialization["steps_persisted"],
+        "campaigns_persisted": materialization["campaigns_persisted"],
         "persisted": len(persisted),
+        "persistence_errors": materialization["persistence_errors"],
         "highest_risk_score": highest_risk,
         "critical_chains": critical_count,
         "high_chains": high_count,
