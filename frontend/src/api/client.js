@@ -158,3 +158,11 @@ export async function getCampaigns(limit = 20) {
 export async function rebuildAttackChains(limit = 50) {
   return apiPost(`/api/attack-chains/rebuild?limit=${encodeURIComponent(limit)}`, {});
 }
+
+export async function getIncidentWorkspace(incidentId) {
+  return apiGet(`/api/incidents/${encodeURIComponent(incidentId)}/workspace`);
+}
+
+export async function createIncidentWorkspaceEvidenceChecklist(incidentId) {
+  return apiPost(`/api/incidents/${encodeURIComponent(incidentId)}/workspace/evidence-checklist`, {});
+}

@@ -10,6 +10,7 @@ import {
   getAttackChains,
   getAttackChainTimeline,
   getCampaigns,
+  getIncidentWorkspace,
   getThreatIntelRelationshipSummary,
   getThreatIntelSyncStatus,
   getStoredToken,
@@ -17,6 +18,7 @@ import {
   login,
   register,
   rebuildAttackChains,
+  createIncidentWorkspaceEvidenceChecklist,
   correlateIndicators,
   searchThreatIntel,
   setStoredToken,
@@ -1589,6 +1591,7 @@ function CaseManagementPanel({
   evidence,
   report,
   copilot,
+  workspace,
   state,
   error,
   onSelectCase,
@@ -1603,6 +1606,7 @@ function CaseManagementPanel({
   onDownloadJson,
   onOpenHtml,
   onGenerateCopilot,
+  onCreateWorkspaceChecklist,
   canOperate,
 }) {
   return (
@@ -1636,7 +1640,7 @@ function CaseManagementPanel({
 
             <div className="case-workspace">
               <div className="tab-row" role="tablist" aria-label="Case sections">
-                {["overview", "notes", "evidence", "report"].map((tab) => (
+                {["overview", "workspace", "notes", "evidence", "report"].map((tab) => (
                   <button
                     key={tab}
                     type="button"
@@ -1696,6 +1700,9 @@ function CaseManagementPanel({
                     <button type="button" disabled={!canOperate || state === "saving"} onClick={onUpdateCase}>
                       {state === "saving" ? "Updating..." : "Update Case"}
                     </button>
+                    <button type="button" onClick={() => onTabChange("workspace")}>
+                      Open Investigation Workspace
+                    </button>
                     <button type="button" disabled={!canOperate || state === "saving"} onClick={onGenerateCopilot}>
                       Generate Copilot Guidance
                     </button>
@@ -1708,6 +1715,94 @@ function CaseManagementPanel({
                       <p>{copilot.risk_assessment}</p>
                     </div>
                   )}
+                </div>
+              )}
+
+              {caseDetails && activeTab === "workspace" && (
+                <div className="case-card">
+                  <div className="record-title-row">
+                    <div>
+                      <h3>Incident Investigation Workspace</h3>
+                      <p>
+                        {workspace?.summary?.workspace_status === "linked"
+                          ? `Linked ${workspace.summary.linked_entity_type}: ${workspace.summary.linked_entity_id}`
+                          : "No escalation marker found. Showing incident-driven investigation guidance."}
+                      </p>
+                    </div>
+                    <StatusBadge
+                      status={workspace?.recommendations?.priority || caseDetails.priority || "medium"}
+                      allowedStatuses={["low", "medium", "high", "critical"]}
+                    />
+                  </div>
+
+                  <div className="report-summary-grid">
+                    <div className="report-summary-card">
+                      <span>Incident</span>
+                      <strong>{workspace?.incident?.title || caseDetails.title}</strong>
+                      <p>{caseDetails.priority || "unset priority"} | {caseDetails.case_status || caseDetails.status}</p>
+                    </div>
+                    <div className="report-summary-card">
+                      <span>Linked Chain</span>
+                      <strong>{workspace?.linked_attack_chain?.chain_id || "none"}</strong>
+                      <p>{workspace?.linked_attack_chain?.classification || "unlinked"}</p>
+                    </div>
+                    <div className="report-summary-card">
+                      <span>Timeline</span>
+                      <strong>{workspace?.timeline_preview?.length ?? 0}</strong>
+                      <p>preview steps</p>
+                    </div>
+                    <div className="report-summary-card">
+                      <span>Evidence</span>
+                      <strong>{workspace?.case_evidence?.length ?? 0}</strong>
+                      <p>{workspace?.evidence_checklist?.length ?? 0} checklist items</p>
+                    </div>
+                  </div>
+
+                  <div className="analyst-note">
+                    <strong>Recommendation summary</strong>
+                    <p>{workspace?.recommendations?.summary || "No workspace recommendation available."}</p>
+                    <ul className="recommendation-list">
+                      {(workspace?.recommendations?.recommended_actions ?? []).slice(0, 6).map((action) => (
+                        <li key={action}>{action}</li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="report-summary-grid">
+                    <div className="report-summary-card report-wide-card">
+                      <span>Timeline Preview</span>
+                      {(workspace?.timeline_preview ?? []).length === 0 ? (
+                        <p>No linked timeline steps available.</p>
+                      ) : (
+                        <ul className="case-feed">
+                          {workspace.timeline_preview.slice(0, 8).map((step) => (
+                            <li key={step.step_id}>
+                              <strong>{step.event_type || step.title}</strong>
+                              <p>{formatDateTime(step.timestamp)} | {step.attack_stage || "unknown stage"} | {step.severity}</p>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                    <div className="report-summary-card report-wide-card">
+                      <span>Evidence Checklist</span>
+                      {(workspace?.evidence_checklist ?? []).length === 0 ? (
+                        <p>No checklist items generated.</p>
+                      ) : (
+                        <ul className="recommendation-list">
+                          {workspace.evidence_checklist.slice(0, 8).map((item) => (
+                            <li key={item.title}>{item.title}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="action-row">
+                    <button type="button" disabled={!canOperate || state === "saving"} onClick={onCreateWorkspaceChecklist}>
+                      Create Evidence Checklist
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -2563,6 +2658,7 @@ export default function Dashboard() {
   const [caseDetails, setCaseDetails] = useState(null);
   const [caseNotes, setCaseNotes] = useState([]);
   const [caseEvidence, setCaseEvidence] = useState([]);
+  const [caseWorkspace, setCaseWorkspace] = useState(null);
   const [caseReport, setCaseReport] = useState(null);
   const [caseCopilot, setCaseCopilot] = useState(null);
   const [caseState, setCaseState] = useState("idle");
@@ -3414,14 +3510,16 @@ export default function Dashboard() {
     try {
       setCaseState("loading");
       setCaseError("");
-      const [details, notes, evidenceItems] = await Promise.all([
+      const [details, notes, evidenceItems, workspace] = await Promise.all([
         apiGet(`/api/cases/${incidentId}`),
         apiGet(`/api/cases/${incidentId}/notes`),
         apiGet(`/api/cases/${incidentId}/evidence`),
+        getIncidentWorkspace(incidentId),
       ]);
       setCaseDetails(details);
       setCaseNotes(notes);
       setCaseEvidence(evidenceItems);
+      setCaseWorkspace(workspace);
       setCaseForm({
         assigned_to: details.assigned_to ?? "",
         priority: details.priority ?? "",
@@ -3432,6 +3530,7 @@ export default function Dashboard() {
       setCaseState("ready");
     } catch (requestError) {
       setCaseError(requestError.message);
+      setCaseWorkspace(null);
       setCaseState("error");
     }
   }
@@ -3508,6 +3607,19 @@ export default function Dashboard() {
         source: "",
         reference_id: "",
       });
+      await Promise.all([loadCase(selectedCaseId), refreshSlices(["activity"])]);
+    } catch (requestError) {
+      setCaseError(requestError.message);
+      setCaseState("error");
+    }
+  }
+
+  async function handleCreateWorkspaceChecklist() {
+    if (!selectedCaseId) return;
+    try {
+      setCaseState("saving");
+      setCaseError("");
+      await createIncidentWorkspaceEvidenceChecklist(selectedCaseId);
       await Promise.all([loadCase(selectedCaseId), refreshSlices(["activity"])]);
     } catch (requestError) {
       setCaseError(requestError.message);
@@ -3983,12 +4095,14 @@ export default function Dashboard() {
           evidence={caseEvidence}
           report={caseReport}
           copilot={caseCopilot}
+          workspace={caseWorkspace}
           state={caseState}
           error={caseError}
           onSelectCase={(incidentId) => {
             setSelectedCaseId(incidentId);
             setCaseReport(null);
             setCaseCopilot(null);
+            setCaseWorkspace(null);
           }}
           onTabChange={setActiveCaseTab}
           onCaseFieldChange={handleCaseFieldChange}
@@ -4001,6 +4115,7 @@ export default function Dashboard() {
           onDownloadJson={handleDownloadCaseJson}
           onOpenHtml={handleOpenCaseHtml}
           onGenerateCopilot={handleGenerateCaseCopilot}
+          onCreateWorkspaceChecklist={handleCreateWorkspaceChecklist}
           canOperate={canOperate}
         />
       )}

@@ -8,6 +8,7 @@ from app.services.activity_service import add_activity
 from app.services.attack_chain_persistence_service import serialize_attack_chain, serialize_campaign
 from app.services.auth_service import require_role
 from app.services.incident_escalation_engine import escalate_attack_chain, escalate_campaign, escalate_context
+from app.services.incident_workspace_service import build_incident_workspace
 from app.services.investigation_recommendation_engine import (
     recommend_for_attack_chain,
     recommend_for_campaign,
@@ -91,6 +92,71 @@ async def update_incident_status(
     await websocket_manager.broadcast_event("incident_updated", {"incident_id": incident.id, "status": incident.status})
     await websocket_manager.broadcast_dashboard_metrics(db)
     return incident
+
+
+@router.get("/{incident_id}/workspace", summary="Get incident investigation workspace")
+def get_incident_workspace(
+    incident_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(require_role("viewer", "analyst")),
+) -> dict:
+    """Return bounded linked investigation context for an incident."""
+    incident = db.get(models.Incident, incident_id)
+    if incident is None:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    return build_incident_workspace(db, incident)
+
+
+@router.post("/{incident_id}/workspace/evidence-checklist", summary="Create evidence checklist records")
+async def create_workspace_evidence_checklist(
+    incident_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(require_role("analyst")),
+) -> dict:
+    """Create case evidence records from workspace recommendation checklist items."""
+    incident = db.get(models.Incident, incident_id)
+    if incident is None:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    workspace = build_incident_workspace(db, incident)
+    created = 0
+    existing_titles = {
+        title
+        for (title,) in db.query(models.CaseEvidence.title)
+        .filter(models.CaseEvidence.incident_id == incident.id)
+        .limit(500)
+        .all()
+    }
+    for item in workspace.get("evidence_checklist", [])[:25]:
+        title = item.get("title")
+        if not title or title in existing_titles:
+            continue
+        db.add(
+            models.CaseEvidence(
+                incident_id=incident.id,
+                evidence_type=item.get("evidence_type") or "investigation",
+                title=title,
+                description="Generated from HexSOC AI investigation workspace checklist.",
+                source=item.get("source") or "HexSOC AI recommendation",
+                reference_id=f"workspace:{incident.id}",
+            )
+        )
+        created += 1
+    activity = add_activity(
+        db,
+        action="workspace_evidence_checklist_created",
+        entity_type="incident",
+        entity_id=incident.id,
+        message=f"Workspace evidence checklist created {created} evidence records.",
+        severity=incident.severity or "info",
+        actor_username=user.username,
+        actor_role=user.role,
+    )
+    db.commit()
+    db.refresh(activity)
+    await websocket_manager.broadcast_activity({"type": "activity_created", "activity": serialize_activity(activity)})
+    await websocket_manager.broadcast_event("case_evidence_added", {"incident_id": incident.id})
+    await websocket_manager.broadcast_dashboard_metrics(db)
+    return {"created": created, "incident_id": incident.id}
 
 
 @router.post("/escalate/attack-chain/{chain_id}", summary="Escalate attack chain to incident")

@@ -119,6 +119,7 @@ Current Phase 4C autonomous investigation foundation:
 - Deterministic investigation recommendations for attack chains, campaigns, and bounded ad hoc context.
 - Explainable SOC guidance for containment, evidence collection, escalation, MITRE context, analyst notes, and next steps.
 - Automated incident escalation from critical attack chains, campaigns, and bounded context using idempotent incident markers.
+- Incident investigation workspace linking escalated incidents to attack-chain/campaign context, timeline preview, recommendations, evidence checklist, and case workflow data.
 - No external LLM calls or automated response actions yet.
 
 Threat Intelligence Feed Integrator endpoints:
@@ -160,6 +161,11 @@ Automated Incident Escalation endpoints:
 - `POST /api/incidents/escalate/attack-chain/{chain_id}`
 - `POST /api/incidents/escalate/campaign/{campaign_id}`
 - `POST /api/incidents/escalate/context`
+
+Incident Investigation Workspace endpoints:
+
+- `GET /api/incidents/{incident_id}/workspace`
+- `POST /api/incidents/{incident_id}/workspace/evidence-checklist`
 
 ## Production Proof
 
