@@ -7,12 +7,16 @@ import {
   apiPost,
   clearStoredToken,
   fetchDashboardData,
+  getAttackChains,
+  getAttackChainTimeline,
+  getCampaigns,
   getThreatIntelRelationshipSummary,
   getThreatIntelSyncStatus,
   getStoredToken,
   graphEnrichIOC,
   login,
   register,
+  rebuildAttackChains,
   correlateIndicators,
   searchThreatIntel,
   setStoredToken,
@@ -2147,6 +2151,166 @@ function CorrelationPanel({ correlationState, correlationResult, correlationErro
   );
 }
 
+function AttackChainIntelligencePanel({
+  chains,
+  campaigns,
+  selectedChainId,
+  timeline,
+  state,
+  timelineState,
+  error,
+  rebuildResult,
+  onRebuild,
+  onSelectChain,
+  canOperate,
+}) {
+  const chainList = chains?.chains ?? [];
+  const campaignList = campaigns?.campaigns ?? [];
+  const highestRiskChain = chainList[0];
+  const criticalHighCount = chainList.filter((chain) => ["critical", "high"].includes(chain.classification)).length;
+
+  return (
+    <section className="attack-chain-panel">
+      <div className="section-heading">
+        <div>
+          <h2>Attack Chain Intelligence</h2>
+          <p>Risk-ranked multi-stage intrusion candidates built from telemetry, alerts, MITRE, IOC links, and assets.</p>
+        </div>
+        <button type="button" disabled={!canOperate || state === "rebuilding"} onClick={onRebuild}>
+          {state === "rebuilding" ? "Rebuilding..." : "Rebuild Attack Chains"}
+        </button>
+      </div>
+
+      {error && <span className="form-error">{error}</span>}
+
+      <div className="attack-chain-summary">
+        <div>
+          <span>Total chains</span>
+          <strong>{chainList.length}</strong>
+        </div>
+        <div>
+          <span>Critical / high</span>
+          <strong>{criticalHighCount}</strong>
+        </div>
+        <div>
+          <span>Campaigns</span>
+          <strong>{campaignList.length}</strong>
+        </div>
+        <div>
+          <span>Highest risk</span>
+          <strong>{highestRiskChain ? highestRiskChain.risk_score : 0}</strong>
+        </div>
+      </div>
+
+      {rebuildResult && (
+        <div className="detection-result">
+          <span>Last rebuild: {rebuildResult.chains_found ?? 0} chains</span>
+          <span>Highest risk: {rebuildResult.highest_risk_score ?? 0}</span>
+          <span>Critical: {rebuildResult.critical_chains ?? 0}</span>
+        </div>
+      )}
+
+      {state === "loading" && <p className="empty-state">Loading attack-chain intelligence...</p>}
+      {state !== "loading" && chainList.length === 0 && (
+        <p className="empty-state">No attack-chain candidates yet. Run detection, MITRE mapping, or rebuild chains after ingesting telemetry.</p>
+      )}
+
+      {chainList.length > 0 && (
+        <div className="attack-chain-layout">
+          <ul className="attack-chain-list">
+            {chainList.slice(0, 20).map((chain) => (
+              <li key={chain.chain_id}>
+                <button
+                  type="button"
+                  className={selectedChainId === chain.chain_id ? "active-chain" : ""}
+                  onClick={() => onSelectChain(chain.chain_id)}
+                >
+                  <div className="record-title-row">
+                    <strong>{chain.title ?? chain.chain_id}</strong>
+                    <span className={`threat-badge threat-${threatLevel(chain.risk_score)}`}>
+                      {chain.classification} {chain.risk_score}
+                    </span>
+                  </div>
+                  <p>{chain.primary_source_ip || chain.primary_group || "No primary entity"}</p>
+                  <div className="activity-meta">
+                    <span>Confidence {chain.confidence}</span>
+                    <span>{chain.related_events?.count ?? 0} events</span>
+                    <span>{chain.related_alerts?.count ?? 0} alerts</span>
+                    <span>{chain.timeline?.first_seen ? formatDateTime(chain.timeline.first_seen) : "No first seen"}</span>
+                  </div>
+                  <div className="mitre-badge-row">
+                    {(chain.stages ?? []).slice(0, 5).map((stage) => (
+                      <span key={`${chain.chain_id}-${stage}`} className="mitre-badge">{stage}</span>
+                    ))}
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+
+          <div className="attack-chain-detail">
+            <h3>Timeline Preview</h3>
+            {!selectedChainId && <p className="empty-state">Select a chain to inspect ordered timeline context.</p>}
+            {timelineState === "loading" && <p className="empty-state">Loading timeline...</p>}
+            {selectedChainId && timelineState !== "loading" && (timeline?.steps ?? []).length === 0 && (
+              <p className="empty-state">No timeline steps returned for this chain.</p>
+            )}
+            {(timeline?.steps ?? []).length > 0 && (
+              <ol className="attack-timeline-list">
+                {timeline.steps.slice(0, 25).map((step) => (
+                  <li key={step.step_id}>
+                    <div className="record-title-row">
+                      <strong>{step.event_type || step.title}</strong>
+                      <span className="severity">{step.severity}</span>
+                    </div>
+                    <p>{formatDateTime(step.timestamp)} | {step.attack_stage}</p>
+                    <div className="activity-meta">
+                      {step.mitre_technique_id && <span>{step.mitre_technique_id}</span>}
+                      {step.mitre_tactic && <span>{step.mitre_tactic}</span>}
+                      {step.hostname && <span>{step.hostname}</span>}
+                      {step.username && <span>{step.username}</span>}
+                      {step.source_ip && <span>{step.source_ip}</span>}
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="campaign-summary">
+        <h3>Campaign Clusters</h3>
+        {campaignList.length === 0 ? (
+          <p className="empty-state">No campaign clusters available yet.</p>
+        ) : (
+          <ul className="data-list chain-list">
+            {campaignList.slice(0, 6).map((campaign) => (
+              <li key={campaign.campaign_id} className="chain-item">
+                <div className="record-title-row">
+                  <strong>{campaign.title}</strong>
+                  <span className={`threat-badge threat-${threatLevel(campaign.max_risk_score)}`}>
+                    {campaign.classification}
+                  </span>
+                </div>
+                <p>{campaign.summary}</p>
+                <div className="activity-meta">
+                  <span>{campaign.chain_count} chains</span>
+                  <span>Risk {campaign.max_risk_score}</span>
+                  {(campaign.source_ips ?? []).slice(0, 2).map((ip) => <span key={`${campaign.campaign_id}-${ip}`}>{ip}</span>)}
+                  {(campaign.mitre_techniques ?? []).slice(0, 2).map((technique) => (
+                    <span key={`${campaign.campaign_id}-${technique}`}>{technique}</span>
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function AlertSection({ alerts, onStatusChange, updatingKey, canOperate }) {
   return (
     <section className="data-section workflow-section">
@@ -2325,6 +2489,14 @@ export default function Dashboard() {
   const [correlationState, setCorrelationState] = useState("idle");
   const [correlationResult, setCorrelationResult] = useState(null);
   const [correlationError, setCorrelationError] = useState("");
+  const [attackChains, setAttackChains] = useState({ total: 0, chains: [] });
+  const [campaigns, setCampaigns] = useState({ total: 0, campaigns: [] });
+  const [attackChainState, setAttackChainState] = useState("idle");
+  const [attackChainError, setAttackChainError] = useState("");
+  const [attackChainRebuildResult, setAttackChainRebuildResult] = useState(null);
+  const [selectedAttackChainId, setSelectedAttackChainId] = useState("");
+  const [attackChainTimeline, setAttackChainTimeline] = useState(null);
+  const [attackChainTimelineState, setAttackChainTimelineState] = useState("idle");
   const [graphData, setGraphData] = useState(null);
   const [graphStatus, setGraphStatus] = useState("idle");
   const [graphError, setGraphError] = useState("");
@@ -2406,6 +2578,7 @@ export default function Dashboard() {
     graph: false,
     mitre: false,
     ioc: false,
+    attackChains: false,
     adminUsers: false,
     caseId: null,
   });
@@ -2465,6 +2638,7 @@ export default function Dashboard() {
     loadGraph();
     loadMitreCoverage();
     loadIOCIntelligence();
+    loadAttackChainIntelligence();
 
     return () => {
       isMounted = false;
@@ -2478,10 +2652,24 @@ export default function Dashboard() {
   }, [data.incidents, selectedCaseId]);
 
   useEffect(() => {
+    if (!selectedAttackChainId && attackChains.chains.length > 0) {
+      setSelectedAttackChainId(attackChains.chains[0].chain_id);
+    }
+  }, [attackChains.chains, selectedAttackChainId]);
+
+  useEffect(() => {
     if (selectedCaseId) {
       loadCase(selectedCaseId);
     }
   }, [selectedCaseId]);
+
+  useEffect(() => {
+    if (selectedAttackChainId) {
+      loadAttackChainTimeline(selectedAttackChainId);
+    } else {
+      setAttackChainTimeline(null);
+    }
+  }, [selectedAttackChainId]);
 
   useEffect(() => {
     if (currentUser) {
@@ -2638,6 +2826,7 @@ export default function Dashboard() {
     pending.graph = pending.graph || Boolean(options.graph);
     pending.mitre = pending.mitre || Boolean(options.mitre);
     pending.ioc = pending.ioc || Boolean(options.ioc);
+    pending.attackChains = pending.attackChains || Boolean(options.attackChains);
     pending.adminUsers = pending.adminUsers || Boolean(options.adminUsers);
     pending.caseId = options.caseId ?? pending.caseId;
 
@@ -2650,6 +2839,7 @@ export default function Dashboard() {
         graph: false,
         mitre: false,
         ioc: false,
+        attackChains: false,
         adminUsers: false,
         caseId: null,
       };
@@ -2661,6 +2851,7 @@ export default function Dashboard() {
       if (refresh.graph) tasks.push(loadGraph());
       if (refresh.mitre) tasks.push(loadMitreCoverage());
       if (refresh.ioc) tasks.push(loadIOCIntelligence());
+      if (refresh.attackChains) tasks.push(loadAttackChainIntelligence());
       if (refresh.adminUsers) tasks.push(refreshAdminUsers(selectedAdminUserId));
       if (refresh.caseId) tasks.push(loadCase(refresh.caseId));
       await Promise.all(tasks);
@@ -2677,6 +2868,10 @@ export default function Dashboard() {
         chains_found: message.chains_found,
         source_ips_checked: message.source_ips_checked,
       });
+    }
+
+    if (message.type === "attack_chains_rebuilt") {
+      scheduleRealtimeRefresh({ attackChains: true, slices: ["activity"] });
     }
 
     const collectorId = message.collector?.id ?? message.collector_id;
@@ -2746,6 +2941,40 @@ export default function Dashboard() {
     } catch (requestError) {
       setGraphError(requestError.message);
       setGraphStatus("error");
+    }
+  }
+
+  async function loadAttackChainIntelligence() {
+    if (!currentUser) return;
+    try {
+      setAttackChainState((currentState) => (currentState === "rebuilding" ? currentState : "loading"));
+      setAttackChainError("");
+      const [chainResult, campaignResult] = await Promise.all([getAttackChains(20), getCampaigns(20)]);
+      setAttackChains(chainResult);
+      setCampaigns(campaignResult);
+      setSelectedAttackChainId((currentId) => {
+        if (currentId && (chainResult.chains ?? []).some((chain) => chain.chain_id === currentId)) {
+          return currentId;
+        }
+        return chainResult.chains?.[0]?.chain_id ?? "";
+      });
+      setAttackChainState("ready");
+    } catch (requestError) {
+      setAttackChainError(requestError.message);
+      setAttackChainState("error");
+    }
+  }
+
+  async function loadAttackChainTimeline(chainId) {
+    if (!chainId) return;
+    try {
+      setAttackChainTimelineState("loading");
+      const result = await getAttackChainTimeline(chainId);
+      setAttackChainTimeline(result);
+      setAttackChainTimelineState("ready");
+    } catch (requestError) {
+      setAttackChainError(requestError.message);
+      setAttackChainTimelineState("error");
     }
   }
 
@@ -3048,6 +3277,24 @@ export default function Dashboard() {
       setCorrelationError(requestError.message);
     } finally {
       setCorrelationState("idle");
+    }
+  }
+
+  async function handleRebuildAttackChains() {
+    try {
+      setAttackChainState("rebuilding");
+      setAttackChainError("");
+      const result = await rebuildAttackChains(50);
+      setAttackChainRebuildResult(result);
+      setAttackChains({ total: result.chains?.length ?? 0, limit: 50, chains: result.chains ?? [] });
+      const campaignResult = await getCampaigns(20);
+      setCampaigns(campaignResult);
+      setSelectedAttackChainId(result.chains?.[0]?.chain_id ?? "");
+      await refreshSlices(["activity"]);
+      setAttackChainState("ready");
+    } catch (requestError) {
+      setAttackChainError(requestError.message);
+      setAttackChainState("error");
     }
   }
 
@@ -3586,6 +3833,22 @@ export default function Dashboard() {
           correlationResult={correlationResult}
           correlationError={correlationError}
           onRun={handleRunCorrelationEngine}
+          canOperate={canOperate}
+        />
+      )}
+
+      {status === "ready" && (
+        <AttackChainIntelligencePanel
+          chains={attackChains}
+          campaigns={campaigns}
+          selectedChainId={selectedAttackChainId}
+          timeline={attackChainTimeline}
+          state={attackChainState}
+          timelineState={attackChainTimelineState}
+          error={attackChainError}
+          rebuildResult={attackChainRebuildResult}
+          onRebuild={handleRebuildAttackChains}
+          onSelectChain={setSelectedAttackChainId}
           canOperate={canOperate}
         />
       )}

@@ -111,6 +111,7 @@ Current Phase 4B attack-chain intelligence foundation:
 - Replay-ready timeline steps for future investigation playback.
 - Lightweight campaign clustering by shared source IPs, users, assets, and MITRE techniques.
 - Deterministic chain scoring for low, suspicious, high, and critical classifications.
+- Dashboard visibility for rebuilds, risk-ranked chains, timeline previews, and campaign summaries.
 
 Threat Intelligence Feed Integrator endpoints:
 

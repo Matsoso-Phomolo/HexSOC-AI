@@ -796,6 +796,14 @@ body {
   padding: 18px;
 }
 
+.attack-chain-panel {
+  border: 1px solid #203047;
+  border-radius: 8px;
+  background: #101c2f;
+  margin-top: 16px;
+  padding: 18px;
+}
+
 .graph-panel {
   border: 1px solid #203047;
   border-radius: 8px;
@@ -1791,17 +1799,21 @@ body {
   align-items: flex-start;
 }
 
-.correlation-panel h2 {
+.correlation-panel h2,
+.attack-chain-panel h2,
+.attack-chain-panel h3 {
   margin: 0;
   font-size: 18px;
 }
 
-.correlation-panel p {
+.correlation-panel p,
+.attack-chain-panel p {
   color: #93a4b8;
   margin: 6px 0 0;
 }
 
-.correlation-panel button {
+.correlation-panel button,
+.attack-chain-panel button {
   border: 1px solid #38bdf8;
   border-radius: 6px;
   background: #1e3a5f;
@@ -1813,9 +1825,99 @@ body {
   padding: 9px 12px;
 }
 
-.correlation-panel button:disabled {
+.correlation-panel button:disabled,
+.attack-chain-panel button:disabled {
   cursor: wait;
   opacity: 0.6;
+}
+
+.attack-chain-panel .section-heading {
+  align-items: flex-start;
+}
+
+.attack-chain-summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  margin-top: 16px;
+}
+
+.attack-chain-summary div {
+  border: 1px solid #203047;
+  border-radius: 8px;
+  background: #0b1424;
+  padding: 12px;
+}
+
+.attack-chain-summary span {
+  color: #93a4b8;
+  display: block;
+  font-size: 12px;
+}
+
+.attack-chain-summary strong {
+  color: #e5edf6;
+  display: block;
+  font-size: 22px;
+  margin-top: 4px;
+}
+
+.attack-chain-layout {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.8fr);
+  margin-top: 16px;
+}
+
+.attack-chain-list {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.attack-chain-list button {
+  border-color: #203047;
+  background: #0d1728;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  text-align: left;
+  width: 100%;
+}
+
+.attack-chain-list button:hover,
+.attack-chain-list .active-chain {
+  border-color: #38bdf8;
+  background: #1e3a5f;
+}
+
+.attack-chain-detail,
+.campaign-summary {
+  border: 1px solid #203047;
+  border-radius: 8px;
+  background: #0d1728;
+  min-width: 0;
+  padding: 14px;
+}
+
+.campaign-summary {
+  margin-top: 16px;
+}
+
+.attack-timeline-list {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 0;
+  padding-left: 20px;
+}
+
+.attack-timeline-list li {
+  border-left: 3px solid #38bdf8;
+  background: #101c2f;
+  border-radius: 8px;
+  padding: 10px 12px;
 }
 
 .chain-list {
@@ -1881,14 +1983,19 @@ body {
     grid-template-columns: 1fr;
   }
 
+  .attack-chain-layout {
+    grid-template-columns: 1fr;
+  }
+
   .admin-layout {
     grid-template-columns: 1fr;
   }
 
   .graph-panel .section-heading,
   .copilot-panel .section-heading,
-  .mitre-panel .section-heading,
-  .admin-panel .section-heading,
+    .mitre-panel .section-heading,
+    .attack-chain-panel .section-heading,
+    .admin-panel .section-heading,
   .collector-panel .section-heading,
   .case-panel .section-heading,
   .correlation-panel .section-heading {

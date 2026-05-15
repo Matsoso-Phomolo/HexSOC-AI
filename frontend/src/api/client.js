@@ -131,3 +131,23 @@ export async function graphEnrichIOC(payload) {
 export async function getIOCRelationships() {
   return apiGet("/api/graph/ioc-relationships?limit=100");
 }
+
+export async function getAttackChains(limit = 20) {
+  return apiGet(`/api/attack-chains?limit=${encodeURIComponent(limit)}`);
+}
+
+export async function getAttackChain(chainId) {
+  return apiGet(`/api/attack-chains/${encodeURIComponent(chainId)}`);
+}
+
+export async function getAttackChainTimeline(chainId) {
+  return apiGet(`/api/attack-chains/${encodeURIComponent(chainId)}/timeline`);
+}
+
+export async function getCampaigns(limit = 20) {
+  return apiGet(`/api/campaigns?limit=${encodeURIComponent(limit)}`);
+}
+
+export async function rebuildAttackChains(limit = 50) {
+  return apiPost(`/api/attack-chains/rebuild?limit=${encodeURIComponent(limit)}`, {});
+}
