@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import types
 import unittest
+import logging
 from datetime import datetime
 from importlib import util
 from pathlib import Path
@@ -173,6 +174,7 @@ class AttackChainSerializationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.original_models = attack_serializers.models
         self.original_campaign_builder = attack_serializers.build_campaign_clusters
+        self.original_upsert = attack_serializers.upsert_attack_chain
         attack_serializers.models = SimpleNamespace(
             AttackChain=FakeAttackChain,
             AttackChainStep=FakeAttackChainStep,
@@ -192,6 +194,7 @@ class AttackChainSerializationTests(unittest.TestCase):
     def tearDown(self) -> None:
         attack_serializers.models = self.original_models
         attack_serializers.build_campaign_clusters = self.original_campaign_builder
+        attack_serializers.upsert_attack_chain = self.original_upsert
 
     def test_empty_chain_lists_are_serialized_as_lists(self) -> None:
         chain = SimpleNamespace(
@@ -305,7 +308,9 @@ class AttackChainSerializationTests(unittest.TestCase):
         self.assertEqual(result["persistence_errors"], [])
         self.assertEqual(len(session.chains), 1)
         self.assertEqual(len(session.steps), 2)
+        self.assertIsNotNone(session.chains[0].id)
         self.assertTrue(all(step.attack_chain_id == session.chains[0].id for step in session.steps))
+        self.assertTrue(all(step.attack_chain_id is not None for step in session.steps))
 
     def test_duplicate_rebuild_updates_existing_chain(self) -> None:
         session = FakeSession()
@@ -318,6 +323,43 @@ class AttackChainSerializationTests(unittest.TestCase):
         self.assertEqual(second["chains_persisted"], 1)
         self.assertEqual(len(session.chains), 1)
         self.assertEqual(len(session.steps), 2)
+
+    def test_malformed_candidate_does_not_rollback_valid_candidate(self) -> None:
+        session = FakeSession()
+        original_upsert = attack_serializers.upsert_attack_chain
+
+        def guarded_upsert(db, candidate):
+            if candidate.get("chain_id") == "chain:bad":
+                raise ValueError("malformed candidate")
+            return original_upsert(db, candidate)
+
+        attack_serializers.upsert_attack_chain = guarded_upsert
+        valid = _candidate()
+        malformed = {**_candidate(), "chain_id": "chain:bad", "primary_group": "source_ip:198.51.100.23"}
+
+        logging.disable(logging.CRITICAL)
+        try:
+            result = materialize_attack_chains(session, [valid, malformed])
+        finally:
+            logging.disable(logging.NOTSET)
+
+        self.assertEqual(result["chains_generated"], 2)
+        self.assertEqual(result["chains_persisted"], 1)
+        self.assertEqual(result["steps_persisted"], 2)
+        self.assertEqual(len(result["persistence_errors"]), 1)
+        self.assertEqual(len(session.chains), 1)
+        self.assertEqual(len(session.steps), 2)
+
+    def test_rebuild_materialization_summary_reports_generated_vs_persisted(self) -> None:
+        session = FakeSession()
+
+        result = materialize_attack_chains(session, [_candidate(), {**_candidate(), "primary_group": "source_ip:198.51.100.23"}])
+
+        self.assertEqual(result["chains_generated"], 2)
+        self.assertEqual(result["chains_persisted"], 2)
+        self.assertEqual(result["steps_persisted"], 4)
+        self.assertEqual(result["campaigns_persisted"], 1)
+        self.assertIn("persistence_errors", result)
 
 
 def _candidate() -> dict:
