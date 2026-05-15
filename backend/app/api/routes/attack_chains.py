@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.db import models
+from app.db.database import ensure_attack_chain_schema
 from app.services.activity_service import add_activity
 from app.services.attack_chain_engine import build_attack_chains
 from app.services.attack_chain_persistence_service import (
@@ -38,6 +39,10 @@ async def rebuild_attack_chain_intelligence(
     except Exception as exc:
         db.rollback()
         logger.exception("Attack-chain rebuild failed before persistence: %s", exc)
+        try:
+            ensure_attack_chain_schema()
+        except Exception as schema_exc:
+            logger.exception("On-demand attack-chain schema sync failed after rebuild error: %s", schema_exc)
         fallback = _empty_attack_chain_response(limit=limit, error="attack_chain_rebuild_failed")
         return {
             **fallback,
@@ -124,6 +129,19 @@ def list_attack_chains(
     except SQLAlchemyError as exc:
         db.rollback()
         logger.exception("Failed to load persisted attack chains; returning safe fallback: %s", exc)
+        try:
+            ensure_attack_chain_schema()
+            chains = (
+                db.query(models.AttackChain)
+                .order_by(models.AttackChain.risk_score.desc(), models.AttackChain.last_seen.desc().nullslast(), models.AttackChain.id.desc())
+                .limit(limit)
+                .all()
+            )
+            serialized = [serialize_attack_chain(chain) for chain in chains]
+            return {"total": len(serialized), "limit": limit, "chains": serialized, "summary": {"source": "persisted_retry", "error": None}}
+        except Exception as retry_exc:
+            db.rollback()
+            logger.exception("Attack-chain load retry failed; returning fallback: %s", retry_exc)
     except Exception as exc:
         logger.exception("Failed to serialize persisted attack chains; returning safe fallback: %s", exc)
     return _empty_attack_chain_response(limit=limit, error="attack_chain_load_failed")
@@ -240,6 +258,19 @@ def list_campaigns(
     except SQLAlchemyError as exc:
         db.rollback()
         logger.exception("Failed to load campaign clusters; returning safe fallback: %s", exc)
+        try:
+            ensure_attack_chain_schema()
+            campaigns = (
+                db.query(models.CampaignCluster)
+                .order_by(models.CampaignCluster.risk_score.desc(), models.CampaignCluster.last_seen.desc().nullslast(), models.CampaignCluster.id.desc())
+                .limit(limit)
+                .all()
+            )
+            serialized = [serialize_campaign(campaign) for campaign in campaigns]
+            return {"total": len(serialized), "limit": limit, "campaigns": serialized, "summary": {"source": "persisted_retry", "error": None}}
+        except Exception as retry_exc:
+            db.rollback()
+            logger.exception("Campaign cluster load retry failed; returning fallback: %s", retry_exc)
     except Exception as exc:
         logger.exception("Failed to serialize campaign clusters; returning safe fallback: %s", exc)
     return {"total": 0, "limit": limit, "campaigns": [], "summary": {"source": "fallback", "error": "campaign_load_failed"}}

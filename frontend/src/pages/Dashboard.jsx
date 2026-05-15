@@ -2949,9 +2949,17 @@ export default function Dashboard() {
     try {
       setAttackChainState((currentState) => (currentState === "rebuilding" ? currentState : "loading"));
       setAttackChainError("");
-      const [chainResult, campaignResult] = await Promise.all([getAttackChains(20), getCampaigns(20)]);
+      const [chainSettled, campaignSettled] = await Promise.allSettled([getAttackChains(20), getCampaigns(20)]);
+      if (chainSettled.status === "rejected" && campaignSettled.status === "rejected") {
+        throw chainSettled.reason;
+      }
+      const chainResult = chainSettled.status === "fulfilled" ? chainSettled.value : { total: 0, chains: [] };
+      const campaignResult = campaignSettled.status === "fulfilled" ? campaignSettled.value : { total: 0, campaigns: [] };
       setAttackChains(chainResult);
       setCampaigns(campaignResult);
+      if (chainSettled.status === "rejected" || campaignSettled.status === "rejected") {
+        setAttackChainError("Attack-chain storage is partially unavailable. Showing available results.");
+      }
       setSelectedAttackChainId((currentId) => {
         if (currentId && (chainResult.chains ?? []).some((chain) => chain.chain_id === currentId)) {
           return currentId;
@@ -3287,8 +3295,13 @@ export default function Dashboard() {
       const result = await rebuildAttackChains(50);
       setAttackChainRebuildResult(result);
       setAttackChains({ total: result.chains?.length ?? 0, limit: 50, chains: result.chains ?? [] });
-      const campaignResult = await getCampaigns(20);
-      setCampaigns(campaignResult);
+      try {
+        const campaignResult = await getCampaigns(20);
+        setCampaigns(campaignResult);
+      } catch {
+        setCampaigns({ total: 0, campaigns: [] });
+        setAttackChainError("Attack chains rebuilt, but campaign summaries are temporarily unavailable.");
+      }
       setSelectedAttackChainId(result.chains?.[0]?.chain_id ?? "");
       await refreshSlices(["activity"]);
       setAttackChainState("ready");

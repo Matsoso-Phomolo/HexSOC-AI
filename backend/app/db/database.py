@@ -450,6 +450,22 @@ def _execute_schema_statements(statements: list[str], label: str) -> None:
         logger.info("%s completed", label)
 
 
+def ensure_attack_chain_schema() -> None:
+    """Create or repair persistent attack-chain tables on demand."""
+    statements = [
+        "CREATE TABLE IF NOT EXISTS attack_chains (id SERIAL PRIMARY KEY, chain_key VARCHAR(255) NOT NULL UNIQUE, stable_fingerprint VARCHAR(64) NOT NULL UNIQUE, title VARCHAR(255) NOT NULL, classification VARCHAR(40) NOT NULL DEFAULT 'suspicious', risk_score INTEGER NOT NULL DEFAULT 0, confidence INTEGER NOT NULL DEFAULT 0, status VARCHAR(40) NOT NULL DEFAULT 'open', source_type VARCHAR(40), source_value VARCHAR(255), stage_count INTEGER NOT NULL DEFAULT 0, event_count INTEGER NOT NULL DEFAULT 0, alert_count INTEGER NOT NULL DEFAULT 0, first_seen TIMESTAMP WITH TIME ZONE, last_seen TIMESTAMP WITH TIME ZONE, mitre_techniques JSON, mitre_tactics JSON, related_assets JSON, related_users JSON, related_iocs JSON, summary TEXT, version INTEGER NOT NULL DEFAULT 1, created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL, updated_at TIMESTAMP WITH TIME ZONE)",
+        "CREATE TABLE IF NOT EXISTS attack_chain_steps (id SERIAL PRIMARY KEY, attack_chain_id INTEGER NOT NULL, step_index INTEGER NOT NULL, timestamp TIMESTAMP WITH TIME ZONE, stage VARCHAR(120), event_type VARCHAR(120), severity VARCHAR(40), mitre_technique VARCHAR(160), mitre_tactic VARCHAR(120), hostname VARCHAR(255), username VARCHAR(120), source_ip VARCHAR(64), destination_ip VARCHAR(64), event_id INTEGER, alert_id INTEGER, description TEXT, confidence INTEGER, metadata JSON)",
+        "CREATE TABLE IF NOT EXISTS campaign_clusters (id SERIAL PRIMARY KEY, campaign_key VARCHAR(255) NOT NULL UNIQUE, stable_fingerprint VARCHAR(64) NOT NULL UNIQUE, title VARCHAR(255) NOT NULL, classification VARCHAR(40) NOT NULL DEFAULT 'suspicious', risk_score INTEGER NOT NULL DEFAULT 0, chain_count INTEGER NOT NULL DEFAULT 0, shared_iocs JSON, shared_source_ips JSON, shared_assets JSON, shared_users JSON, shared_techniques JSON, first_seen TIMESTAMP WITH TIME ZONE, last_seen TIMESTAMP WITH TIME ZONE, summary TEXT, created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL, updated_at TIMESTAMP WITH TIME ZONE)",
+        "CREATE TABLE IF NOT EXISTS investigation_sessions (id SERIAL PRIMARY KEY, attack_chain_id INTEGER, campaign_cluster_id INTEGER, title VARCHAR(255) NOT NULL, assigned_to VARCHAR(120), status VARCHAR(40) NOT NULL DEFAULT 'open', priority VARCHAR(40), analyst_notes TEXT, evidence_refs JSON, created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL, updated_at TIMESTAMP WITH TIME ZONE)",
+        *_attack_chain_schema_statements(),
+        "CREATE INDEX IF NOT EXISTS ix_attack_chains_risk_last_seen ON attack_chains (risk_score, last_seen)",
+        "CREATE INDEX IF NOT EXISTS ix_attack_chain_steps_chain_order ON attack_chain_steps (attack_chain_id, step_index)",
+        "CREATE INDEX IF NOT EXISTS ix_campaign_clusters_risk_last_seen ON campaign_clusters (risk_score, last_seen)",
+        "CREATE INDEX IF NOT EXISTS ix_investigation_sessions_chain ON investigation_sessions (attack_chain_id)",
+    ]
+    _execute_schema_statements(statements, "on-demand attack-chain schema sync")
+
+
 def _attack_chain_schema_statements() -> list[str]:
     """Return additive schema statements for persistent attack-chain tables."""
     return [
