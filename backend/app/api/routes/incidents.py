@@ -1,4 +1,7 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -17,6 +20,7 @@ from app.services.investigation_recommendation_engine import (
 from app.services.websocket_manager import serialize_activity, websocket_manager
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/", response_model=IncidentRead, status_code=201, summary="Create incident")
@@ -166,13 +170,32 @@ async def escalate_attack_chain_incident(
     user: models.User = Depends(require_role("analyst")),
 ) -> dict:
     """Create or update an incident from a critical attack chain."""
+    logger.info("Attack-chain escalation requested", extra={"chain_id": chain_id, "actor": user.username})
     chain = _load_attack_chain(db, chain_id)
     if not chain:
+        logger.warning("Attack-chain escalation failed: chain not found", extra={"chain_id": chain_id})
         raise HTTPException(status_code=404, detail="Attack chain not found")
     chain_payload = serialize_attack_chain(chain)
     recommendation = recommend_for_attack_chain(chain_payload)
-    result = escalate_attack_chain(db, chain_payload, recommendation)
+    try:
+        result = escalate_attack_chain(db, chain_payload, recommendation)
+        await _commit_escalation(db, result)
+    except SQLAlchemyError as exc:
+        logger.exception("Attack-chain escalation persistence failed", extra={"chain_id": chain_id})
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Incident escalation persistence failed",
+                "rollback_detected": True,
+                "reason": str(exc.__class__.__name__),
+            },
+        ) from exc
     await _finalize_escalation(db, user, result)
+    logger.info(
+        "Attack-chain escalation completed",
+        extra={"chain_id": chain_id, "incident_id": result.get("incident_id"), "incident_created": result.get("created")},
+    )
     return result
 
 
@@ -189,6 +212,7 @@ async def escalate_campaign_incident(
     campaign_payload = serialize_campaign(campaign)
     recommendation = recommend_for_campaign(campaign_payload)
     result = escalate_campaign(db, campaign_payload, recommendation)
+    await _commit_escalation(db, result)
     await _finalize_escalation(db, user, result)
     return result
 
@@ -209,40 +233,72 @@ async def escalate_context_incident(
     if not isinstance(recommendation, dict):
         recommendation = recommend_for_context(entity_type, entity_id, context)
     result = escalate_context(db, entity_type=entity_type, entity_id=entity_id, context=context, recommendation=recommendation)
+    await _commit_escalation(db, result)
     await _finalize_escalation(db, user, result)
     return result
+
+
+async def _commit_escalation(db: Session, result: dict) -> None:
+    """Persist the incident before non-critical activity and websocket side effects."""
+    incident_id = result.get("incident_id")
+    if not result.get("escalated") or not incident_id:
+        logger.info("Escalation skipped before persistence", extra={"reason": result.get("reason")})
+        result["incident_found"] = False
+        result["incident_persisted"] = False
+        return
+    result["incident_found"] = db.get(models.Incident, incident_id) is not None
+    try:
+        db.commit()
+    except SQLAlchemyError:
+        result["rollback_detected"] = True
+        result["incident_persisted"] = False
+        logger.exception("Escalation incident commit failed", extra={"incident_id": incident_id})
+        db.rollback()
+        raise
+    persisted = db.get(models.Incident, incident_id)
+    result["incident_persisted"] = persisted is not None
+    result["rollback_detected"] = False
+    logger.info(
+        "Escalation incident commit completed",
+        extra={
+            "incident_id": incident_id,
+            "incident_persisted": result["incident_persisted"],
+            "incident_created": result.get("created"),
+        },
+    )
 
 
 async def _finalize_escalation(db: Session, user: models.User, result: dict) -> None:
     severity = "critical" if result.get("priority") == "critical" else "high" if result.get("escalated") else "info"
     action = "incident_escalated" if result.get("escalated") else "incident_escalation_skipped"
-    activity = add_activity(
-        db,
-        action=action,
-        entity_type="incident",
-        entity_id=result.get("incident_id"),
-        message=result.get("reason") or "Incident escalation evaluated.",
-        severity=severity,
-        actor_username=user.username,
-        actor_role=user.role,
-    )
-    db.commit()
-    if result.get("incident_id"):
-        incident = db.get(models.Incident, result["incident_id"])
-        if incident:
-            db.refresh(incident)
-    db.refresh(activity)
-    await websocket_manager.broadcast_activity({"type": "activity_created", "activity": serialize_activity(activity)})
-    await websocket_manager.broadcast_event(
-        "incident_escalated",
-        {
-            "incident_id": result.get("incident_id"),
-            "created": result.get("created"),
-            "linked_entity_type": result.get("linked_entity_type"),
-            "linked_entity_id": result.get("linked_entity_id"),
-        },
-    )
-    await websocket_manager.broadcast_dashboard_metrics(db)
+    try:
+        activity = add_activity(
+            db,
+            action=action,
+            entity_type="incident",
+            entity_id=result.get("incident_id"),
+            message=result.get("reason") or "Incident escalation evaluated.",
+            severity=severity,
+            actor_username=user.username,
+            actor_role=user.role,
+        )
+        db.commit()
+        db.refresh(activity)
+        await websocket_manager.broadcast_activity({"type": "activity_created", "activity": serialize_activity(activity)})
+        await websocket_manager.broadcast_event(
+            "incident_escalated",
+            {
+                "incident_id": result.get("incident_id"),
+                "created": result.get("created"),
+                "linked_entity_type": result.get("linked_entity_type"),
+                "linked_entity_id": result.get("linked_entity_id"),
+            },
+        )
+        await websocket_manager.broadcast_dashboard_metrics(db)
+    except Exception as exc:
+        db.rollback()
+        result["side_effect_error"] = exc.__class__.__name__
+        logger.exception("Escalation side effects failed after incident persistence", extra={"incident_id": result.get("incident_id")})
 
 
 def _load_attack_chain(db: Session, chain_id: str) -> models.AttackChain | None:

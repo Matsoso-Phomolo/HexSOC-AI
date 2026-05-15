@@ -109,6 +109,9 @@ class IncidentEscalationEngineTests(unittest.TestCase):
         self.assertTrue(result["escalated"])
         self.assertTrue(result["created"])
         self.assertEqual(result["incident_id"], 1)
+        self.assertTrue(result["incident_found"])
+        self.assertFalse(result["incident_persisted"])
+        self.assertFalse(result["rollback_detected"])
         self.assertIn("[hexsoc-escalation:attack_chain:1]", session.incidents[0].description)
 
     def test_duplicate_escalation_updates_existing_incident(self) -> None:

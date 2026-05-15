@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.db import models
 
+
+logger = logging.getLogger(__name__)
 
 OPEN_INCIDENT_STATUSES = {"open", "investigating", "contained"}
 CRITICAL_STAGES = [
@@ -83,14 +86,28 @@ def _escalate(
 ) -> dict[str, Any]:
     escalation_required, reason = should_escalate(context, recommendation)
     priority = _priority(context, recommendation)
+    logger.info(
+        "Incident escalation evaluated",
+        extra={
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "escalation_required": escalation_required,
+            "priority": priority,
+            "reason": reason,
+        },
+    )
     if not escalation_required:
         return _result(False, False, None, reason, priority, entity_type, entity_id, recommendation)
 
     marker = _marker(entity_type, entity_id)
+    logger.info("Looking for existing escalation incident", extra={"entity_type": entity_type, "entity_id": entity_id})
     existing = _find_existing_incident(db, marker)
     if existing:
+        logger.info("Existing escalation incident found", extra={"incident_id": existing.id, "entity_type": entity_type, "entity_id": entity_id})
         _update_incident(existing, context, recommendation, reason, priority, marker)
-        return _result(True, False, existing.id, reason, priority, entity_type, entity_id, recommendation)
+        result = _result(True, False, existing.id, reason, priority, entity_type, entity_id, recommendation)
+        result["incident_found"] = True
+        return result
 
     incident = models.Incident(
         title=_title(entity_type, entity_id, context),
@@ -104,7 +121,10 @@ def _escalate(
     )
     db.add(incident)
     db.flush()
-    return _result(True, True, incident.id, reason, priority, entity_type, entity_id, recommendation)
+    logger.info("Escalation incident staged", extra={"incident_id": incident.id, "entity_type": entity_type, "entity_id": entity_id})
+    result = _result(True, True, incident.id, reason, priority, entity_type, entity_id, recommendation)
+    result["incident_found"] = True
+    return result
 
 
 def _find_existing_incident(db: Session, marker: str) -> models.Incident | None:
@@ -148,6 +168,9 @@ def _result(
         "escalated": escalated,
         "created": created,
         "incident_id": incident_id,
+        "incident_found": incident_id is not None,
+        "incident_persisted": False,
+        "rollback_detected": False,
         "reason": reason,
         "priority": priority,
         "linked_entity_type": entity_type,
