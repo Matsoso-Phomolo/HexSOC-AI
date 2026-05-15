@@ -100,6 +100,7 @@ Current Phase 4A.1 threat intelligence foundation:
 - Source-independent IOC fingerprinting and deduplication.
 - Local/mock feed ingestion before live provider API integration.
 - IOC correlation results prepared for alert, event, asset, and graph relationships.
+- Graph-native IOC relationship enrichment with weighted edges and bounded graph payloads.
 - Provider adapters remain modular for VirusTotal, AbuseIPDB, OTX, Shodan, GreyNoise, and MISP.
 
 Threat Intelligence Feed Integrator endpoints:
@@ -111,6 +112,9 @@ Threat Intelligence Feed Integrator endpoints:
 - `POST /api/threat-intel/feeds/normalize`
 - `POST /api/threat-intel/correlate`
 - `GET /api/threat-intel/sync-status`
+- `POST /api/threat-intel/graph-enrich`
+- `GET /api/threat-intel/relationship-summary`
+- `GET /api/graph/ioc-relationships`
 
 ## Production Proof
 

@@ -135,6 +135,31 @@ class ThreatIntelSyncStatus(BaseModel):
     top_sources: list[dict[str, Any]]
 
 
+class IOCGraphEnrichmentRequest(BaseModel):
+    """Request to enrich one SOC entity with matching IOC graph relationships."""
+
+    entity_type: Literal["alert", "event", "asset", "incident"]
+    entity_id: int
+    indicators: list[str] = Field(default_factory=list, max_length=100)
+
+
+class IOCGraphEnrichmentResponse(BaseModel):
+    """Bounded graph-native IOC enrichment response."""
+
+    entity_node: dict[str, Any]
+    ioc_nodes: list[dict[str, Any]]
+    relationships: list[dict[str, Any]]
+    summary: dict[str, Any]
+
+
+class IOCRelationshipSummary(BaseModel):
+    """Summary of stored IOC relationships."""
+
+    total_relationships: int
+    by_entity_type: list[dict[str, Any]]
+    recent_relationships: list[dict[str, Any]]
+
+
 class IOCCorrelationResponse(BaseModel):
     """Summary for IOC correlation across SOC entities."""
 

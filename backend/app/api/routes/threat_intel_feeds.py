@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
@@ -12,7 +12,10 @@ from app.schemas.threat_ioc import (
     FeedNormalizeRequest,
     IOCCorrelateRequest,
     IOCCorrelationResponse,
+    IOCGraphEnrichmentRequest,
+    IOCGraphEnrichmentResponse,
     IOCLiveCorrelationResponse,
+    IOCRelationshipSummary,
     IOCSearchResponse,
     ThreatIntelSyncStatus,
     ThreatIOCBulkCreate,
@@ -22,6 +25,7 @@ from app.schemas.threat_ioc import (
 )
 from app.services.auth_service import require_role
 from app.services.ioc_correlation_engine import correlate_indicators
+from app.services.ioc_graph_enrichment import enrich_entity_with_iocs, relationship_summary
 from app.services.threat_intel_feed_service import correlate_iocs, ingest_iocs, normalize_and_ingest_feed
 from app.services.websocket_manager import websocket_manager
 
@@ -140,6 +144,41 @@ async def correlate_threat_iocs(
     await websocket_manager.broadcast_activity({"type": "threat_ioc_correlated", "payload": result})
     await websocket_manager.broadcast_activity({"type": "graph_updated"})
     return result
+
+
+@router.post("/graph-enrich", response_model=IOCGraphEnrichmentResponse, summary="Build IOC graph relationships")
+async def graph_enrich(
+    payload: IOCGraphEnrichmentRequest,
+    db: Session = Depends(get_db),
+    _: models.User = Depends(require_role("analyst")),
+) -> dict[str, Any]:
+    """Convert IOC matches for one entity into graph-native nodes and weighted edges."""
+    try:
+        result = enrich_entity_with_iocs(
+            db,
+            entity_type=payload.entity_type,
+            entity_id=payload.entity_id,
+            indicators=payload.indicators,
+            limit=100,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    await websocket_manager.broadcast_activity({"type": "threat_ioc_graph_enriched", "payload": result["summary"]})
+    await websocket_manager.broadcast_activity({"type": "graph_updated"})
+    return result
+
+
+@router.get("/relationship-summary", response_model=IOCRelationshipSummary, summary="IOC relationship summary")
+def ioc_relationship_summary(
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _: models.User = Depends(require_role("viewer")),
+) -> dict[str, Any]:
+    """Return bounded IOC-to-entity relationship counts and recent links."""
+    return relationship_summary(db, limit=limit)
 
 
 @router.get("/sync-status", response_model=ThreatIntelSyncStatus, summary="Threat intel sync status")
