@@ -435,6 +435,119 @@ body {
   resize: vertical;
 }
 
+.ioc-panel {
+  border: 1px solid #203047;
+  border-radius: 8px;
+  background: #101c2f;
+  margin-top: 24px;
+  padding: 18px;
+}
+
+.ioc-panel .section-heading {
+  align-items: flex-start;
+}
+
+.ioc-panel h2,
+.ioc-panel h3 {
+  margin: 0;
+}
+
+.ioc-panel p {
+  color: #93a4b8;
+  margin: 6px 0 0;
+}
+
+.ioc-panel button {
+  border: 1px solid #38bdf8;
+  border-radius: 6px;
+  background: #1e3a5f;
+  color: #e5edf6;
+  cursor: pointer;
+  font: inherit;
+  padding: 9px 12px;
+}
+
+.ioc-panel button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.ioc-summary-grid,
+.ioc-workspace {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  margin-top: 16px;
+}
+
+.ioc-summary-grid div,
+.ioc-card,
+.ioc-relationship-strip {
+  border: 1px solid #203047;
+  border-radius: 8px;
+  background: #0b1220;
+  padding: 14px;
+}
+
+.ioc-summary-grid span,
+.ioc-result span {
+  color: #93a4b8;
+  display: block;
+  font-size: 13px;
+}
+
+.ioc-summary-grid strong {
+  display: block;
+  font-size: 22px;
+  margin-top: 6px;
+}
+
+.ioc-card {
+  display: grid;
+  gap: 10px;
+}
+
+.ioc-card input,
+.ioc-card select,
+.ioc-card textarea {
+  border: 1px solid #2e425f;
+  border-radius: 6px;
+  background: #0b1220;
+  color: #e5edf6;
+  font: inherit;
+  padding: 9px 10px;
+}
+
+.ioc-inline-fields {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(120px, 0.6fr) 1fr;
+}
+
+.ioc-list {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ioc-list li {
+  border-top: 1px solid #203047;
+  padding-top: 10px;
+}
+
+.ioc-result {
+  display: grid;
+  gap: 5px;
+}
+
+.ioc-relationship-strip {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+
 .wide-field,
 .form-footer {
   grid-column: 1 / -1;

@@ -113,10 +113,28 @@ def relationship_summary(db: Session, limit: int = 100) -> dict[str, Any]:
         .limit(limit)
         .all()
     )
+    ioc_ids = {link.ioc_id for link in recent}
+    iocs = {ioc.id: ioc for ioc in db.query(models.ThreatIOC).filter(models.ThreatIOC.id.in_(ioc_ids)).limit(limit).all()} if ioc_ids else {}
+    weighted = []
+    type_counts: dict[str, int] = {}
+    for link in recent:
+        ioc = iocs.get(link.ioc_id)
+        if not ioc:
+            continue
+        source_count = ioc.source_count or len(ioc.sources or [ioc.source])
+        weight = ioc_edge_weight(severity=ioc.severity, confidence=link.confidence_score, source_count=source_count)
+        type_counts[ioc.ioc_type] = type_counts.get(ioc.ioc_type, 0) + 1
+        weighted.append({**_link_payload(link), "ioc_type": ioc.ioc_type, "ioc_value": ioc.normalized_value, "weight": weight, "severity": ioc.severity})
+
     return {
         "total_relationships": total_relationships,
         "by_entity_type": [{"entity_type": entity_type, "count": count} for entity_type, count in by_entity],
         "recent_relationships": [_link_payload(link) for link in recent],
+        "highest_weighted_relationships": sorted(weighted, key=lambda item: item["weight"], reverse=True)[:10],
+        "top_ioc_types": [
+            {"ioc_type": ioc_type, "count": count}
+            for ioc_type, count in sorted(type_counts.items(), key=lambda item: item[1], reverse=True)[:10]
+        ],
     }
 
 

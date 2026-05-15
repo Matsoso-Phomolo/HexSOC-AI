@@ -7,9 +7,14 @@ import {
   apiPost,
   clearStoredToken,
   fetchDashboardData,
+  getThreatIntelRelationshipSummary,
+  getThreatIntelSyncStatus,
   getStoredToken,
+  graphEnrichIOC,
   login,
   register,
+  correlateIndicators,
+  searchThreatIntel,
   setStoredToken,
 } from "../api/client.js";
 import { useRealtimeAlerts } from "../hooks/useRealtimeAlerts.js";
@@ -936,6 +941,130 @@ function ThreatIntelPanel({ threatState, threatResult, threatError, onRun, canOp
         </div>
       )}
       {threatError && <span className="form-error">{threatError}</span>}
+    </section>
+  );
+}
+
+function IOCInvestigationPanel({
+  syncStatus,
+  relationshipSummary,
+  state,
+  error,
+  searchQuery,
+  searchResult,
+  searchState,
+  correlationInput,
+  correlationResult,
+  correlationState,
+  graphForm,
+  graphResult,
+  graphState,
+  onSearchQueryChange,
+  onCorrelationInputChange,
+  onGraphFormChange,
+  onSearch,
+  onCorrelate,
+  onGraphEnrich,
+  onRefresh,
+  canOperate,
+}) {
+  const activeIocs = syncStatus?.active_iocs ?? 0;
+  const highSeverityIocs = (searchResult?.indicators ?? []).filter((ioc) => ["high", "critical"].includes(ioc.severity)).length;
+  const recentMatches = relationshipSummary?.recent_relationships ?? [];
+  const topRelationship = relationshipSummary?.by_entity_type?.[0];
+
+  return (
+    <section className="ioc-panel">
+      <div className="section-heading">
+        <div>
+          <h2>IOC Intelligence</h2>
+          <p>Search, correlate, and preview threat intelligence relationships without expanding the full graph.</p>
+        </div>
+        <button type="button" disabled={state === "loading"} onClick={onRefresh}>
+          {state === "loading" ? "Refreshing..." : "Refresh IOC Intel"}
+        </button>
+      </div>
+
+      {error && <span className="form-error">{error}</span>}
+
+      <div className="ioc-summary-grid">
+        <div><span>Active IOCs</span><strong>{activeIocs}</strong></div>
+        <div><span>High severity in results</span><strong>{highSeverityIocs}</strong></div>
+        <div><span>Relationships</span><strong>{relationshipSummary?.total_relationships ?? 0}</strong></div>
+        <div><span>Top relation</span><strong>{topRelationship ? `${topRelationship.entity_type} (${topRelationship.count})` : "none"}</strong></div>
+      </div>
+
+      <div className="ioc-workspace">
+        <form className="ioc-card" onSubmit={onSearch}>
+          <h3>IOC Search</h3>
+          <input value={searchQuery} onChange={(event) => onSearchQueryChange(event.target.value)} placeholder="IP, domain, URL, hash, email, CVE" />
+          <button type="submit" disabled={searchState === "loading"}>{searchState === "loading" ? "Searching..." : "Search IOC"}</button>
+          {searchResult?.indicators?.length ? (
+            <ul className="ioc-list">
+              {searchResult.indicators.slice(0, 5).map((ioc) => (
+                <li key={ioc.id}>
+                  <strong>{ioc.ioc_type}: {ioc.normalized_value}</strong>
+                  <p>{ioc.severity} | confidence {ioc.confidence_score} | sources {ioc.source_count ?? 1}</p>
+                  <div className="threat-badge-row">
+                    {(ioc.tags ?? []).slice(0, 4).map((tag) => <span key={`${ioc.id}-${tag}`} className="threat-badge">{tag}</span>)}
+                    <span className="threat-badge">{ioc.is_active ? "active" : "expired"}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty-state">No IOC search results yet.</p>
+          )}
+        </form>
+
+        <form className="ioc-card" onSubmit={onCorrelate}>
+          <h3>Correlation Test</h3>
+          <textarea value={correlationInput} rows={4} onChange={(event) => onCorrelationInputChange(event.target.value)} placeholder="One indicator per line" />
+          <button type="submit" disabled={!canOperate || correlationState === "loading"}>{correlationState === "loading" ? "Correlating..." : "Correlate Indicators"}</button>
+          {correlationResult ? (
+            <div className="ioc-result">
+              <span>Matched IOCs: {correlationResult.matches_found}</span>
+              <span>Risk amplification: {correlationResult.risk_amplification}</span>
+              <span>Inputs checked: {correlationResult.inputs_checked}</span>
+            </div>
+          ) : (
+            <p className="empty-state">Run a bounded IOC correlation test.</p>
+          )}
+        </form>
+
+        <form className="ioc-card" onSubmit={onGraphEnrich}>
+          <h3>Graph Enrichment Preview</h3>
+          <div className="ioc-inline-fields">
+            <select value={graphForm.entity_type} onChange={(event) => onGraphFormChange("entity_type", event.target.value)}>
+              <option value="alert">alert</option>
+              <option value="event">event</option>
+              <option value="asset">asset</option>
+              <option value="incident">incident</option>
+            </select>
+            <input value={graphForm.entity_id} onChange={(event) => onGraphFormChange("entity_id", event.target.value)} placeholder="Entity ID" />
+          </div>
+          <textarea value={graphForm.indicators} rows={4} onChange={(event) => onGraphFormChange("indicators", event.target.value)} placeholder="Indicators, one per line" />
+          <button type="submit" disabled={!canOperate || graphState === "loading"}>{graphState === "loading" ? "Building..." : "Preview Graph Enrichment"}</button>
+          {graphResult ? (
+            <div className="ioc-result">
+              <span>Entity: {graphResult.entity_node?.id}</span>
+              <span>IOC nodes: {graphResult.ioc_nodes?.length ?? 0}</span>
+              <span>Relationships: {graphResult.relationships?.length ?? 0}</span>
+              <span>Max weight: {graphResult.summary?.max_weight ?? 0}</span>
+              <span>Risk amplification: {graphResult.summary?.risk_amplification ?? 0}</span>
+            </div>
+          ) : (
+            <p className="empty-state">Preview weighted IOC relationships for one entity.</p>
+          )}
+        </form>
+      </div>
+
+      <div className="ioc-relationship-strip">
+        <strong>Relationship Summary</strong>
+        <span>Top IOC types: {relationshipSummary?.top_ioc_types?.length ? relationshipSummary.top_ioc_types.map((item) => `${item.ioc_type} (${item.count})`).join(", ") : "none"}</span>
+        <span>Highest weighted: {relationshipSummary?.highest_weighted_relationships?.length ? relationshipSummary.highest_weighted_relationships.slice(0, 3).map((item) => `${item.ioc_type}:${item.ioc_value} w${item.weight}`).join(", ") : "none"}</span>
+        <span>Recent activity: {recentMatches.length} links</span>
+      </div>
     </section>
   );
 }
@@ -2177,6 +2306,19 @@ export default function Dashboard() {
   const [threatState, setThreatState] = useState("idle");
   const [threatResult, setThreatResult] = useState(null);
   const [threatError, setThreatError] = useState("");
+  const [iocSyncStatus, setIocSyncStatus] = useState(null);
+  const [iocRelationshipSummary, setIocRelationshipSummary] = useState(null);
+  const [iocPanelState, setIocPanelState] = useState("idle");
+  const [iocPanelError, setIocPanelError] = useState("");
+  const [iocSearchQuery, setIocSearchQuery] = useState("");
+  const [iocSearchResult, setIocSearchResult] = useState(null);
+  const [iocSearchState, setIocSearchState] = useState("idle");
+  const [iocCorrelationInput, setIocCorrelationInput] = useState("");
+  const [iocCorrelationResult, setIocCorrelationResult] = useState(null);
+  const [iocCorrelationState, setIocCorrelationState] = useState("idle");
+  const [iocGraphForm, setIocGraphForm] = useState({ entity_type: "alert", entity_id: "", indicators: "" });
+  const [iocGraphResult, setIocGraphResult] = useState(null);
+  const [iocGraphState, setIocGraphState] = useState("idle");
   const [mitreCoverage, setMitreCoverage] = useState(null);
   const [mitreState, setMitreState] = useState("idle");
   const [mitreError, setMitreError] = useState("");
@@ -2263,6 +2405,7 @@ export default function Dashboard() {
     collectors: false,
     graph: false,
     mitre: false,
+    ioc: false,
     adminUsers: false,
     caseId: null,
   });
@@ -2321,6 +2464,7 @@ export default function Dashboard() {
     loadDashboard();
     loadGraph();
     loadMitreCoverage();
+    loadIOCIntelligence();
 
     return () => {
       isMounted = false;
@@ -2469,12 +2613,31 @@ export default function Dashboard() {
     }
   }
 
+  async function loadIOCIntelligence() {
+    if (!currentUser) return;
+    try {
+      setIocPanelState("loading");
+      setIocPanelError("");
+      const [syncStatus, relationshipSummary] = await Promise.all([
+        getThreatIntelSyncStatus(),
+        getThreatIntelRelationshipSummary(),
+      ]);
+      setIocSyncStatus(syncStatus);
+      setIocRelationshipSummary(relationshipSummary);
+      setIocPanelState("ready");
+    } catch (requestError) {
+      setIocPanelError(requestError.message);
+      setIocPanelState("error");
+    }
+  }
+
   function scheduleRealtimeRefresh(options = {}) {
     const pending = pendingRealtimeRefreshRef.current;
     (options.slices ?? []).forEach((key) => pending.slices.add(key));
     pending.collectors = pending.collectors || Boolean(options.collectors);
     pending.graph = pending.graph || Boolean(options.graph);
     pending.mitre = pending.mitre || Boolean(options.mitre);
+    pending.ioc = pending.ioc || Boolean(options.ioc);
     pending.adminUsers = pending.adminUsers || Boolean(options.adminUsers);
     pending.caseId = options.caseId ?? pending.caseId;
 
@@ -2486,6 +2649,7 @@ export default function Dashboard() {
         collectors: false,
         graph: false,
         mitre: false,
+        ioc: false,
         adminUsers: false,
         caseId: null,
       };
@@ -2496,6 +2660,7 @@ export default function Dashboard() {
       if (refresh.collectors) tasks.push(loadCollectors());
       if (refresh.graph) tasks.push(loadGraph());
       if (refresh.mitre) tasks.push(loadMitreCoverage());
+      if (refresh.ioc) tasks.push(loadIOCIntelligence());
       if (refresh.adminUsers) tasks.push(refreshAdminUsers(selectedAdminUserId));
       if (refresh.caseId) tasks.push(loadCase(refresh.caseId));
       await Promise.all(tasks);
@@ -2546,8 +2711,8 @@ export default function Dashboard() {
       scheduleRealtimeRefresh({ slices: ["events", "alerts", "activity"], graph: true, mitre: true });
     }
 
-    if (["graph_updated", "correlation_completed", "threat_intel_enrichment"].includes(message.type)) {
-      scheduleRealtimeRefresh({ graph: true });
+    if (["graph_updated", "correlation_completed", "threat_intel_enrichment", "threat_ioc_graph_enriched", "threat_ioc_correlated"].includes(message.type)) {
+      scheduleRealtimeRefresh({ graph: true, ioc: true });
     }
 
     if (["case_updated", "case_note_added", "case_evidence_added", "case_report_generated", "case_report_exported", "incident_updated"].includes(message.type)) {
@@ -2581,6 +2746,73 @@ export default function Dashboard() {
     } catch (requestError) {
       setGraphError(requestError.message);
       setGraphStatus("error");
+    }
+  }
+
+  function parseIndicatorLines(value) {
+    return value
+      .split(/\r?\n|,/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, 100);
+  }
+
+  async function handleIOCSearch(event) {
+    event.preventDefault();
+    const query = iocSearchQuery.trim();
+    if (!query) return;
+    try {
+      setIocSearchState("loading");
+      setIocPanelError("");
+      const result = await searchThreatIntel(query);
+      setIocSearchResult(result);
+      setIocSearchState("ready");
+    } catch (requestError) {
+      setIocPanelError(requestError.message);
+      setIocSearchState("error");
+    }
+  }
+
+  async function handleIOCCorrelate(event) {
+    event.preventDefault();
+    const indicators = parseIndicatorLines(iocCorrelationInput);
+    if (!indicators.length) return;
+    try {
+      setIocCorrelationState("loading");
+      setIocPanelError("");
+      const result = await correlateIndicators(indicators);
+      setIocCorrelationResult(result);
+      await loadIOCIntelligence();
+      setIocCorrelationState("ready");
+    } catch (requestError) {
+      setIocPanelError(requestError.message);
+      setIocCorrelationState("error");
+    }
+  }
+
+  function handleIOCGraphFormChange(name, value) {
+    setIocGraphForm((currentForm) => ({ ...currentForm, [name]: value }));
+  }
+
+  async function handleIOCGraphEnrich(event) {
+    event.preventDefault();
+    const entityId = Number(iocGraphForm.entity_id);
+    const indicators = parseIndicatorLines(iocGraphForm.indicators);
+    if (!entityId || !indicators.length) return;
+    try {
+      setIocGraphState("loading");
+      setIocPanelError("");
+      const result = await graphEnrichIOC({
+        entity_type: iocGraphForm.entity_type,
+        entity_id: entityId,
+        indicators,
+      });
+      setIocGraphResult(result);
+      await Promise.all([loadIOCIntelligence(), loadGraph()]);
+      setIocGraphState("ready");
+    } catch (requestError) {
+      setIocPanelError(requestError.message);
+      setIocGraphState("error");
     }
   }
 
@@ -3307,6 +3539,32 @@ export default function Dashboard() {
           threatResult={threatResult}
           threatError={threatError}
           onRun={handleRunThreatIntel}
+          canOperate={canOperate}
+        />
+      )}
+
+      {status === "ready" && (
+        <IOCInvestigationPanel
+          syncStatus={iocSyncStatus}
+          relationshipSummary={iocRelationshipSummary}
+          state={iocPanelState}
+          error={iocPanelError}
+          searchQuery={iocSearchQuery}
+          searchResult={iocSearchResult}
+          searchState={iocSearchState}
+          correlationInput={iocCorrelationInput}
+          correlationResult={iocCorrelationResult}
+          correlationState={iocCorrelationState}
+          graphForm={iocGraphForm}
+          graphResult={iocGraphResult}
+          graphState={iocGraphState}
+          onSearchQueryChange={setIocSearchQuery}
+          onCorrelationInputChange={setIocCorrelationInput}
+          onGraphFormChange={handleIOCGraphFormChange}
+          onSearch={handleIOCSearch}
+          onCorrelate={handleIOCCorrelate}
+          onGraphEnrich={handleIOCGraphEnrich}
+          onRefresh={loadIOCIntelligence}
           canOperate={canOperate}
         />
       )}

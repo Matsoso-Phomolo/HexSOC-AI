@@ -158,6 +158,8 @@ class IOCRelationshipSummary(BaseModel):
     total_relationships: int
     by_entity_type: list[dict[str, Any]]
     recent_relationships: list[dict[str, Any]]
+    highest_weighted_relationships: list[dict[str, Any]] = Field(default_factory=list)
+    top_ioc_types: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class IOCCorrelationResponse(BaseModel):

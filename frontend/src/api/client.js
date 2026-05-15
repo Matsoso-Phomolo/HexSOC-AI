@@ -104,3 +104,30 @@ export async function fetchDashboardData() {
 
   return { assets, events, alerts, incidents, activity };
 }
+
+export async function searchThreatIntel(query) {
+  const params = new URLSearchParams();
+  params.set("q", query);
+  params.set("limit", "25");
+  return apiGet(`/api/threat-intel/search?${params.toString()}`);
+}
+
+export async function correlateIndicators(indicators) {
+  return apiPost("/api/threat-intel/correlate", { indicators });
+}
+
+export async function getThreatIntelSyncStatus() {
+  return apiGet("/api/threat-intel/sync-status");
+}
+
+export async function getThreatIntelRelationshipSummary() {
+  return apiGet("/api/threat-intel/relationship-summary?limit=25");
+}
+
+export async function graphEnrichIOC(payload) {
+  return apiPost("/api/threat-intel/graph-enrich", payload);
+}
+
+export async function getIOCRelationships() {
+  return apiGet("/api/graph/ioc-relationships?limit=100");
+}
