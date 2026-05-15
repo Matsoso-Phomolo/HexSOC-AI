@@ -6,13 +6,13 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-IOCType = Literal["ip", "domain", "url", "hash"]
+IOCType = Literal["ip", "domain", "url", "hash", "email", "cve"]
 
 
 class ThreatIOCCreate(BaseModel):
     """Input contract for one normalized or raw threat indicator."""
 
-    ioc_type: IOCType
+    ioc_type: IOCType | None = None
     value: str = Field(min_length=1, max_length=1000)
     source: str = Field(default="manual", min_length=1, max_length=120)
     source_reference: str | None = None
@@ -27,6 +27,7 @@ class ThreatIOCCreate(BaseModel):
     expires_at: datetime | None = None
     ttl_days: int | None = Field(default=90, ge=1, le=3650)
     raw_payload: dict[str, Any] | None = None
+    raw_context: dict[str, Any] | None = None
 
 
 class ThreatIOCBulkCreate(BaseModel):
@@ -43,7 +44,10 @@ class ThreatIOCRead(BaseModel):
     ioc_type: str
     value: str
     normalized_value: str
+    fingerprint: str | None = None
     source: str
+    sources: list[str] | None = None
+    source_count: int | None = None
     source_reference: str | None = None
     confidence_score: int
     risk_score: int
@@ -55,6 +59,7 @@ class ThreatIOCRead(BaseModel):
     last_seen_at: datetime | None = None
     expires_at: datetime | None = None
     is_active: bool
+    raw_context: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime | None = None
 
@@ -87,11 +92,47 @@ class ThreatIOCIngestResponse(BaseModel):
     """Summary for IOC ingestion operations."""
 
     received: int
+    total_received: int
     created: int
     updated: int
     skipped: int
     source: str
+    errors: list[dict[str, str]] = Field(default_factory=list)
     indicators: list[ThreatIOCRead]
+
+
+class IOCSearchResponse(BaseModel):
+    """Search response for normalized IOC lookups."""
+
+    query: str
+    total: int
+    indicators: list[ThreatIOCRead]
+
+
+class IOCCorrelateRequest(BaseModel):
+    """Request to correlate raw indicators against stored IOCs."""
+
+    indicators: list[str] = Field(default_factory=list, max_length=100)
+
+
+class IOCLiveCorrelationResponse(BaseModel):
+    """Correlation result for supplied raw indicators."""
+
+    inputs_checked: int
+    matches_found: int
+    risk_amplification: int
+    results: list[dict[str, Any]]
+    graph_relationships: list[dict[str, Any]]
+
+
+class ThreatIntelSyncStatus(BaseModel):
+    """Operational status of the local IOC intelligence lifecycle."""
+
+    active_iocs: int
+    expired_iocs: int
+    source_count: int
+    link_count: int
+    top_sources: list[dict[str, Any]]
 
 
 class IOCCorrelationResponse(BaseModel):

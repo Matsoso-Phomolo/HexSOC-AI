@@ -29,7 +29,14 @@ async function parseResponse(response, path) {
   }
 
   if (!response.ok) {
-    throw new Error(`API request failed for ${path}: ${response.status}`);
+    let detail = "";
+    try {
+      const payload = await response.json();
+      detail = payload?.detail ? ` - ${payload.detail}` : "";
+    } catch {
+      detail = "";
+    }
+    throw new Error(`API request failed for ${path}: ${response.status}${detail}`);
   }
 
   return response.json();

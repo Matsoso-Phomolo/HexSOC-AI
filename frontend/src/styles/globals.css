@@ -391,6 +391,46 @@ body {
   padding: 9px 10px;
 }
 
+.password-field {
+  position: relative;
+}
+
+.password-field input {
+  padding-right: 44px;
+  width: 100%;
+}
+
+.password-field button {
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: #93a4b8;
+  cursor: pointer;
+  display: inline-flex;
+  height: 34px;
+  justify-content: center;
+  padding: 0;
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+}
+
+.password-field button:hover {
+  color: #7dd3fc;
+}
+
+.password-field svg {
+  fill: none;
+  height: 19px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+  width: 19px;
+}
+
 .record-form textarea {
   resize: vertical;
 }

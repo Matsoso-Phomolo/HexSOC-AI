@@ -1,21 +1,19 @@
 """Threat Intelligence Feed Integrator service layer."""
 
 from datetime import datetime, timedelta, timezone
-from hashlib import sha256
 from typing import Any
 from urllib.parse import urlparse
 
 from sqlalchemy import or_
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db import models
 from app.schemas.threat_ioc import ThreatIOCCreate
 from app.services.activity_service import add_activity
+from app.services.ioc_correlation_engine import correlate_stored_iocs
+from app.services.ioc_deduplicator import upsert_ioc
+from app.services.ioc_normalizer import IOC_TYPES, normalize_ioc_value
 from app.services.threat_intel_adapters import normalize_feed_payload
-
-
-IOC_TYPES = {"ip", "domain", "url", "hash"}
 
 
 def ingest_iocs(
@@ -29,72 +27,21 @@ def ingest_iocs(
     created = 0
     updated = 0
     skipped = 0
+    errors: list[dict[str, str]] = []
     stored: list[models.ThreatIOC] = []
 
     for indicator in indicators:
-        normalized_type, normalized_value = normalize_ioc(indicator.ioc_type, indicator.value)
-        if not normalized_value:
-            skipped += 1
-            continue
-
-        expires_at = indicator.expires_at or _expiry_from_ttl(indicator.ttl_days)
-        existing = (
-            db.query(models.ThreatIOC)
-            .filter(
-                models.ThreatIOC.source == indicator.source,
-                models.ThreatIOC.ioc_type == normalized_type,
-                models.ThreatIOC.normalized_value == normalized_value,
-            )
-            .first()
-        )
-
-        if existing:
-            _apply_ioc_update(existing, indicator, normalized_type, normalized_value, expires_at)
+        status, ioc, reason = upsert_ioc(db, indicator)
+        if status == "created":
+            created += 1
+        elif status == "updated":
             updated += 1
-            stored.append(existing)
+        else:
+            skipped += 1
+            errors.append({"value": indicator.value, "reason": reason or "IOC skipped"})
             continue
-
-        ioc = models.ThreatIOC(
-            ioc_type=normalized_type,
-            value=indicator.value.strip(),
-            normalized_value=normalized_value,
-            source=indicator.source.strip().lower(),
-            source_reference=indicator.source_reference,
-            confidence_score=indicator.confidence_score,
-            risk_score=indicator.risk_score,
-            severity=_severity_from_score(indicator.risk_score, indicator.severity),
-            tags=indicator.tags,
-            classification=indicator.classification,
-            description=indicator.description,
-            first_seen_at=indicator.first_seen_at,
-            last_seen_at=indicator.last_seen_at or datetime.now(timezone.utc),
-            expires_at=expires_at,
-            is_active=True,
-            raw_payload=indicator.raw_payload,
-        )
-        db.add(ioc)
-        try:
-            db.flush()
-        except IntegrityError:
-            db.rollback()
-            existing = (
-                db.query(models.ThreatIOC)
-                .filter(
-                    models.ThreatIOC.source == indicator.source,
-                    models.ThreatIOC.ioc_type == normalized_type,
-                    models.ThreatIOC.normalized_value == normalized_value,
-                )
-                .first()
-            )
-            if existing:
-                _apply_ioc_update(existing, indicator, normalized_type, normalized_value, expires_at)
-                updated += 1
-                stored.append(existing)
-            else:
-                skipped += 1
-            continue
-        created += 1
-        stored.append(ioc)
+        if ioc:
+            stored.append(ioc)
 
     add_activity(
         db,
@@ -112,9 +59,11 @@ def ingest_iocs(
 
     return {
         "received": len(indicators),
+        "total_received": len(indicators),
         "created": created,
         "updated": updated,
         "skipped": skipped,
+        "errors": errors,
         "indicators": stored,
     }
 
@@ -136,56 +85,19 @@ def normalize_and_ingest_feed(
 def correlate_iocs(db: Session) -> dict[str, int]:
     """Create IOC links to existing alerts, events, and assets."""
     expired = expire_iocs(db)
-    active_iocs = (
-        db.query(models.ThreatIOC)
-        .filter(models.ThreatIOC.is_active.is_(True))
-        .order_by(models.ThreatIOC.risk_score.desc(), models.ThreatIOC.id.desc())
-        .limit(1000)
-        .all()
-    )
-    created = 0
-    existing = 0
-
-    for ioc in active_iocs:
-        matches = _find_ioc_matches(db, ioc)
-        for entity_type, entity_id in matches:
-            link = (
-                db.query(models.ThreatIOCLink)
-                .filter(
-                    models.ThreatIOCLink.ioc_id == ioc.id,
-                    models.ThreatIOCLink.entity_type == entity_type,
-                    models.ThreatIOCLink.entity_id == entity_id,
-                    models.ThreatIOCLink.relationship == "correlated_with",
-                )
-                .first()
-            )
-            if link:
-                existing += 1
-                continue
-            db.add(
-                models.ThreatIOCLink(
-                    ioc_id=ioc.id,
-                    entity_type=entity_type,
-                    entity_id=entity_id,
-                    relationship="correlated_with",
-                    confidence_score=ioc.confidence_score,
-                )
-            )
-            created += 1
+    correlation = correlate_stored_iocs(db)
 
     add_activity(
         db,
         action="threat_ioc_correlated",
         entity_type="threat_ioc",
         entity_id=None,
-        message=f"IOC correlation created {created} links across alerts, events, and assets.",
+        message=f"IOC correlation created {correlation['links_created']} links across alerts, events, and assets.",
         severity="info",
     )
     db.commit()
     return {
-        "active_iocs_checked": len(active_iocs),
-        "links_created": created,
-        "links_existing": existing,
+        **correlation,
         "expired_iocs_deactivated": expired,
     }
 
@@ -205,21 +117,8 @@ def expire_iocs(db: Session) -> int:
 
 def normalize_ioc(ioc_type: str, value: str) -> tuple[str, str]:
     """Normalize IOC type and value for deduplication."""
-    normalized_type = (ioc_type or "").lower().strip()
-    raw = (value or "").strip()
-    if normalized_type not in IOC_TYPES or not raw:
-        return normalized_type, ""
-    if normalized_type == "domain":
-        return normalized_type, raw.lower().rstrip(".")
-    if normalized_type == "url":
-        parsed = urlparse(raw)
-        scheme = (parsed.scheme or "http").lower()
-        host = (parsed.netloc or parsed.path.split("/", 1)[0]).lower()
-        path = parsed.path if parsed.netloc else "/" + "/".join(parsed.path.split("/")[1:])
-        return normalized_type, f"{scheme}://{host}{path}".rstrip("/")
-    if normalized_type == "hash":
-        return normalized_type, raw.lower()
-    return normalized_type, raw.lower()
+    normalized = normalize_ioc_value(value, ioc_type)
+    return normalized.ioc_type, normalized.normalized_value if normalized.is_valid else ""
 
 
 def _apply_ioc_update(

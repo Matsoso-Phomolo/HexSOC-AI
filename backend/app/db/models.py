@@ -176,7 +176,10 @@ class ThreatIOC(Base, TimestampMixin):
     ioc_type = Column(String(40), nullable=False, index=True)
     value = Column(String(1000), nullable=False, index=True)
     normalized_value = Column(String(1000), nullable=False, index=True)
+    fingerprint = Column(String(64), nullable=True, index=True)
     source = Column(String(120), nullable=False, index=True)
+    sources = Column(JSON, nullable=True)
+    source_count = Column(Integer, nullable=False, default=1, index=True)
     source_reference = Column(String(500), nullable=True)
     confidence_score = Column(Integer, nullable=False, default=50, index=True)
     risk_score = Column(Integer, nullable=False, default=50, index=True)
@@ -189,6 +192,7 @@ class ThreatIOC(Base, TimestampMixin):
     expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
     is_active = Column(Boolean, nullable=False, default=True, index=True)
     raw_payload = Column(JSON, nullable=True)
+    raw_context = Column(JSON, nullable=True)
 
 
 class ThreatIOCLink(Base):

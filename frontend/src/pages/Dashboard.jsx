@@ -543,6 +543,47 @@ function TextAreaField({ label, name, value, onChange, required = false }) {
   );
 }
 
+function PasswordField({ value, onChange }) {
+  const [isVisible, setIsVisible] = useState(false);
+
+  return (
+    <label>
+      <span>Password</span>
+      <div className="password-field">
+        <input
+          name="password"
+          type={isVisible ? "text" : "password"}
+          value={value}
+          required
+          onChange={(event) => onChange("password", event.target.value)}
+        />
+        <button
+          type="button"
+          aria-label={isVisible ? "Hide password" : "Show password"}
+          title={isVisible ? "Hide password" : "Show password"}
+          onClick={() => setIsVisible((current) => !current)}
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            {isVisible ? (
+              <>
+                <path d="M3 3l18 18" />
+                <path d="M10.58 10.58A2 2 0 0 0 12 14a2 2 0 0 0 1.42-.58" />
+                <path d="M9.88 5.09A9.77 9.77 0 0 1 12 4c5 0 9 5 9 8a9.58 9.58 0 0 1-2.19 3.84" />
+                <path d="M6.61 6.61C4.4 8.14 3 10.42 3 12c0 3 4 8 9 8a9.77 9.77 0 0 0 3.39-.61" />
+              </>
+            ) : (
+              <>
+                <path d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7z" />
+                <circle cx="12" cy="12" r="3" />
+              </>
+            )}
+          </svg>
+        </button>
+      </div>
+    </label>
+  );
+}
+
 function AuthScreen({ authMode, authForm, authError, authState, onModeChange, onFieldChange, onSubmit }) {
   return (
     <main className="auth-shell">
@@ -567,7 +608,7 @@ function AuthScreen({ authMode, authForm, authError, authState, onModeChange, on
               options={["analyst", "viewer", "admin"]}
             />
           )}
-          <Field label="Password" name="password" type="password" value={authForm.password} required onChange={onFieldChange} />
+          <PasswordField value={authForm.password} onChange={onFieldChange} />
           <div className="form-footer">
             <button type="submit" disabled={authState === "loading"}>
               {authState === "loading" ? "Please wait..." : authMode === "login" ? "Sign in" : "Create account"}

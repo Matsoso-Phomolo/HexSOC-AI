@@ -94,13 +94,23 @@ Current engineering focus:
 - Stabilize graph intelligence with bounded payloads, weighted relationships, cluster summaries, deduplication, and future timeline replay metadata.
 - Build Phase 4A Threat Intelligence Feed Integrator as a modular subsystem with IOC models, schemas, routes, services, adapters, normalization, deduplication, scoring, TTL, and correlation links.
 
+Current Phase 4A.1 threat intelligence foundation:
+
+- IOC normalization for IP, domain, URL, hash, email, and CVE indicators.
+- Source-independent IOC fingerprinting and deduplication.
+- Local/mock feed ingestion before live provider API integration.
+- IOC correlation results prepared for alert, event, asset, and graph relationships.
+- Provider adapters remain modular for VirusTotal, AbuseIPDB, OTX, Shodan, GreyNoise, and MISP.
+
 Threat Intelligence Feed Integrator endpoints:
 
 - `GET /api/threat-intel/iocs`
 - `POST /api/threat-intel/iocs`
 - `POST /api/threat-intel/iocs/bulk`
+- `GET /api/threat-intel/search`
 - `POST /api/threat-intel/feeds/normalize`
 - `POST /api/threat-intel/correlate`
+- `GET /api/threat-intel/sync-status`
 
 ## Production Proof
 
