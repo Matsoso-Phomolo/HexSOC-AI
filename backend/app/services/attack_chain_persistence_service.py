@@ -147,14 +147,14 @@ def serialize_attack_chain(chain: models.AttackChain) -> dict[str, Any]:
         "source_type": chain.source_type,
         "source_value": chain.source_value,
         "related_source_ips": [chain.source_value] if chain.source_type == "source_ip" and chain.source_value else [],
-        "usernames": chain.related_users or [],
-        "affected_assets": chain.related_assets or [],
+        "usernames": _safe_list(chain.related_users),
+        "affected_assets": _safe_list(chain.related_assets),
         "related_events": {"count": chain.event_count, "ids": []},
         "related_alerts": {"count": chain.alert_count, "ids": []},
-        "related_iocs": chain.related_iocs or {"count": 0},
+        "related_iocs": chain.related_iocs if isinstance(chain.related_iocs, dict) else {"count": 0},
         "stages": _steps_from_count(chain),
-        "mitre_tactics": chain.mitre_tactics or [],
-        "mitre_techniques": chain.mitre_techniques or [],
+        "mitre_tactics": _safe_list(chain.mitre_tactics),
+        "mitre_techniques": _safe_list(chain.mitre_techniques),
         "timeline": {
             "total_steps": chain.stage_count,
             "first_seen": _iso(chain.first_seen),
@@ -203,11 +203,11 @@ def serialize_campaign(campaign: models.CampaignCluster) -> dict[str, Any]:
         "max_risk_score": campaign.risk_score,
         "risk_score": campaign.risk_score,
         "chain_count": campaign.chain_count,
-        "source_ips": campaign.shared_source_ips or [],
-        "shared_iocs": campaign.shared_iocs or [],
-        "affected_assets": campaign.shared_assets or [],
-        "usernames": campaign.shared_users or [],
-        "mitre_techniques": campaign.shared_techniques or [],
+        "source_ips": _safe_list(campaign.shared_source_ips),
+        "shared_iocs": _safe_list(campaign.shared_iocs),
+        "affected_assets": _safe_list(campaign.shared_assets),
+        "usernames": _safe_list(campaign.shared_users),
+        "mitre_techniques": _safe_list(campaign.shared_techniques),
         "first_seen": _iso(campaign.first_seen),
         "last_seen": _iso(campaign.last_seen),
         "summary": campaign.summary,
@@ -266,5 +266,13 @@ def _iso(value: datetime | None) -> str | None:
 
 def _steps_from_count(chain: models.AttackChain) -> list[str]:
     if isinstance(chain.related_iocs, dict) and chain.related_iocs.get("stages"):
-        return chain.related_iocs["stages"]
+        return _safe_list(chain.related_iocs["stages"])
     return []
+
+
+def _safe_list(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if value is None:
+        return []
+    return [value]
