@@ -22,13 +22,14 @@ from app.services.auth_service import (
     normalize_role,
     verify_password,
 )
+from app.services.audit_log_service import log_failure, log_success
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
 @router.post("/register", response_model=UserRead, status_code=201, summary="Register user")
-def register_user(payload: UserCreate, db: Session = Depends(get_db)) -> models.User:
+def register_user(payload: UserCreate, request: Request, db: Session = Depends(get_db)) -> models.User:
     """Create a user account with a safe default analyst role."""
     email = payload.email.strip().lower()
     username = payload.username.strip().lower()
@@ -49,6 +50,16 @@ def register_user(payload: UserCreate, db: Session = Depends(get_db)) -> models.
             ) from exc
 
     if exists:
+        log_failure(
+            db,
+            action="user_registration_rejected",
+            category="auth",
+            request=request,
+            target_type="user",
+            target_label=username,
+            metadata={"reason": "duplicate_identity", "requested_role": payload.role},
+        )
+        db.commit()
         raise HTTPException(status_code=409, detail="Email or username already exists")
 
     requested_role = normalize_role(payload.role)
@@ -67,6 +78,18 @@ def register_user(payload: UserCreate, db: Session = Depends(get_db)) -> models.
         db.add(user)
         db.commit()
         db.refresh(user)
+        log_success(
+            db,
+            action="user_registered",
+            category="auth",
+            actor=user,
+            request=request,
+            target_type="user",
+            target_id=user.id,
+            target_label=user.username,
+            metadata={"requested_role": requested_role, "requires_approval": requires_approval},
+        )
+        db.commit()
     except IntegrityError as exc:
         db.rollback()
         if _is_duplicate_user_identity_error(exc):
@@ -103,9 +126,31 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
 
     if user is None or not verify_password(payload.password, user.hashed_password):
         _record_login_audit(db, request, user=None, username=username, success=False, reason="invalid_credentials")
+        log_failure(
+            db,
+            action="login_failed",
+            category="auth",
+            request=request,
+            target_type="user",
+            target_label=username,
+            metadata={"reason": "invalid_credentials"},
+        )
+        db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     if not user.is_active:
         _record_login_audit(db, request, user=user, username=user.username, success=False, reason="inactive_account")
+        log_failure(
+            db,
+            action="login_blocked",
+            category="auth",
+            actor=user,
+            request=request,
+            target_type="user",
+            target_id=user.id,
+            target_label=user.username,
+            metadata={"reason": "inactive_account", "disabled_reason": user.disabled_reason},
+        )
+        db.commit()
         detail = user.disabled_reason or "User is inactive"
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
@@ -114,6 +159,17 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
     db.add(user)
     db.commit()
     db.refresh(user)
+    log_success(
+        db,
+        action="login_success",
+        category="auth",
+        actor=user,
+        request=request,
+        target_type="user",
+        target_id=user.id,
+        target_label=user.username,
+    )
+    db.commit()
     return TokenResponse(access_token=create_access_token(user), user=user)
 
 

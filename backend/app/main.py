@@ -7,6 +7,7 @@ from app.api.routes import (
     alerts,
     attack_chains,
     assets,
+    audit,
     auth,
     cases,
     collectors,
@@ -67,6 +68,7 @@ def on_startup() -> None:
 app.include_router(health.router, prefix=settings.api_prefix)
 app.include_router(demo.router, prefix=f"{settings.api_prefix}/demo", tags=["demo"])
 app.include_router(activity.router, prefix=f"{settings.api_prefix}/activity", tags=["activity"])
+app.include_router(audit.router, prefix=f"{settings.api_prefix}/audit", tags=["audit"])
 app.include_router(attack_chains.router, prefix=settings.api_prefix, tags=["attack-chains"])
 app.include_router(investigation_recommendations.router, prefix=f"{settings.api_prefix}/investigation", tags=["investigation"])
 app.include_router(auth.router, prefix=f"{settings.api_prefix}/auth", tags=["auth"])

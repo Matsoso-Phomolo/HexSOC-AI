@@ -6,9 +6,12 @@ from collections.abc import Iterable
 from enum import StrEnum
 from typing import Callable
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
+from sqlalchemy.orm import Session
 
+from app.api.deps import get_db
 from app.db import models
+from app.services.audit_log_service import log_denied
 from app.services.auth_service import SUPER_ADMIN_EMAIL, get_current_user
 
 
@@ -42,6 +45,7 @@ class Permission(StrEnum):
     USER_DELETE = "user.delete"
     USER_GRANT_PRIVILEGED_ROLE = "user.grant_privileged_role"
     USER_APPROVE_PRIVILEGED = "user.approve_privileged"
+    AUDIT_READ = "audit.read"
 
 
 VIEWER_PERMISSIONS = {
@@ -77,6 +81,7 @@ ADMIN_PERMISSIONS = {
     Permission.COLLECTOR_MANAGE,
     Permission.USER_READ,
     Permission.USER_MANAGE,
+    Permission.AUDIT_READ,
 }
 
 SUPER_ADMIN_PERMISSIONS = {
@@ -125,9 +130,25 @@ def require_permission(permission: Permission | str) -> Callable:
     """FastAPI dependency enforcing one permission."""
     required = Permission(permission)
 
-    def dependency(user: models.User = Depends(get_current_user)) -> models.User:
+    def dependency(
+        request: Request,
+        db: Session = Depends(get_db),
+        user: models.User = Depends(get_current_user),
+    ) -> models.User:
         if has_permission(user, required):
             return user
+        log_denied(
+            db,
+            action="permission_denied",
+            category="rbac",
+            actor=user,
+            request=request,
+            target_type="permission",
+            target_id=required.value,
+            target_label=required.value,
+            metadata={"required_permission": required.value},
+        )
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Insufficient permission: {required.value} required",
@@ -140,10 +161,26 @@ def require_any_permission(required_permissions: Iterable[Permission | str]) -> 
     """FastAPI dependency enforcing at least one permission."""
     required = [Permission(permission) for permission in required_permissions]
 
-    def dependency(user: models.User = Depends(get_current_user)) -> models.User:
+    def dependency(
+        request: Request,
+        db: Session = Depends(get_db),
+        user: models.User = Depends(get_current_user),
+    ) -> models.User:
         if any(has_permission(user, permission) for permission in required):
             return user
         joined = ", ".join(permission.value for permission in required)
+        log_denied(
+            db,
+            action="permission_denied",
+            category="rbac",
+            actor=user,
+            request=request,
+            target_type="permission",
+            target_id=joined,
+            target_label=joined,
+            metadata={"required_permissions": [permission.value for permission in required]},
+        )
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Insufficient permission: one of [{joined}] required",

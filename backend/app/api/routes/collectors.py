@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -23,6 +23,7 @@ from app.schemas.collector import (
 )
 from app.schemas.ingestion import BulkIngestRequest, BulkIngestResponse, IngestLogItem
 from app.services.activity_service import add_activity
+from app.services.audit_log_service import log_success
 from app.services.collector_service import (
     calculate_health_status,
     create_collector,
@@ -267,6 +268,7 @@ def collector_fleet_detail(
 @router.post("/", response_model=CollectorCreatedResponse, status_code=201, summary="Create collector")
 async def create_live_collector(
     payload: CollectorCreate,
+    request: Request,
     db: Session = Depends(get_db),
     user: models.User = Depends(require_permission(Permission.COLLECTOR_CREATE)),
 ) -> CollectorCreatedResponse:
@@ -284,6 +286,18 @@ async def create_live_collector(
     db.commit()
     db.refresh(collector)
     db.refresh(activity)
+    log_success(
+        db,
+        action="collector_created",
+        category="collector",
+        actor=user,
+        request=request,
+        target_type="collector",
+        target_id=collector.id,
+        target_label=collector.name,
+        metadata={"collector_type": collector.collector_type, "source_label": collector.source_label},
+    )
+    db.commit()
     await _broadcast_collector("collector_created", collector, activity)
     await websocket_manager.broadcast_dashboard_metrics(db)
     return CollectorCreatedResponse(collector=collector, api_key=api_key)
@@ -293,6 +307,7 @@ async def create_live_collector(
 async def update_collector(
     collector_id: int,
     payload: CollectorUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     user: models.User = Depends(require_permission(Permission.COLLECTOR_MANAGE)),
 ) -> models.Collector:
@@ -320,6 +335,18 @@ async def update_collector(
     db.commit()
     db.refresh(collector)
     db.refresh(activity)
+    log_success(
+        db,
+        action="collector_updated",
+        category="collector",
+        actor=user,
+        request=request,
+        target_type="collector",
+        target_id=collector.id,
+        target_label=collector.name,
+        metadata={"updated_fields": [key for key, value in payload.model_dump().items() if value is not None]},
+    )
+    db.commit()
     await _broadcast_collector("collector_updated", collector, activity)
     await websocket_manager.broadcast_dashboard_metrics(db)
     return collector
@@ -328,6 +355,7 @@ async def update_collector(
 @router.post("/{collector_id}/rotate", response_model=CollectorRotateResponse, summary="Rotate collector key")
 async def rotate_live_collector(
     collector_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     user: models.User = Depends(require_permission(Permission.COLLECTOR_MANAGE)),
 ) -> CollectorRotateResponse:
@@ -346,6 +374,18 @@ async def rotate_live_collector(
     db.commit()
     db.refresh(collector)
     db.refresh(activity)
+    log_success(
+        db,
+        action="collector_rotated",
+        category="collector",
+        actor=user,
+        request=request,
+        target_type="collector",
+        target_id=collector.id,
+        target_label=collector.name,
+        metadata={"key_prefix": collector.key_prefix},
+    )
+    db.commit()
     await _broadcast_collector("collector_updated", collector, activity)
     await websocket_manager.broadcast_dashboard_metrics(db)
     return CollectorRotateResponse(collector=collector, api_key=api_key)
@@ -354,6 +394,7 @@ async def rotate_live_collector(
 @router.post("/{collector_id}/revoke", response_model=CollectorRead, summary="Revoke collector")
 async def revoke_live_collector(
     collector_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     user: models.User = Depends(require_permission(Permission.COLLECTOR_MANAGE)),
 ) -> models.Collector:
@@ -371,6 +412,18 @@ async def revoke_live_collector(
     db.commit()
     db.refresh(collector)
     db.refresh(activity)
+    log_success(
+        db,
+        action="collector_revoked",
+        category="collector",
+        actor=user,
+        request=request,
+        target_type="collector",
+        target_id=collector.id,
+        target_label=collector.name,
+        metadata={"collector_type": collector.collector_type},
+    )
+    db.commit()
     await _broadcast_collector("collector_revoked", collector, activity)
     await websocket_manager.broadcast_dashboard_metrics(db)
     return collector

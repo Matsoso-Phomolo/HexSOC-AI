@@ -26,6 +26,7 @@ def _load_permissions_module():
 
     fastapi_module.Depends = lambda dependency=None: dependency
     fastapi_module.HTTPException = FakeHttpException
+    fastapi_module.Request = object
     fastapi_module.status = SimpleNamespace(HTTP_403_FORBIDDEN=403)
     sys.modules["fastapi"] = fastapi_module
 
@@ -36,6 +37,9 @@ def _load_permissions_module():
     sys.modules["app.db.models"] = models_module
     sys.modules["app.db"].models = models_module
     sys.modules.setdefault("app.services", types.ModuleType("app.services"))
+    audit_module = types.ModuleType("app.services.audit_log_service")
+    audit_module.log_denied = lambda *args, **kwargs: None
+    sys.modules["app.services.audit_log_service"] = audit_module
     auth_module = types.ModuleType("app.services.auth_service")
     auth_module.SUPER_ADMIN_EMAIL = "phomolomatsoso@gmail.com"
     auth_module.get_current_user = lambda: None
@@ -64,6 +68,7 @@ class RbacPermissionTests(unittest.TestCase):
     def test_admin_can_manage_collectors(self):
         user = SimpleNamespace(role="admin", email="admin@example.com")
         self.assertTrue(has_permission(user, Permission.COLLECTOR_MANAGE))
+        self.assertTrue(has_permission(user, Permission.AUDIT_READ))
 
     def test_analyst_cannot_delete_user(self):
         user = SimpleNamespace(role="analyst", email="analyst@example.com")

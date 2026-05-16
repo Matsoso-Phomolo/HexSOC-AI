@@ -2157,6 +2157,95 @@ function AdminUserManagementPanel({
   );
 }
 
+function AuditCompliancePanel({
+  logs,
+  summary,
+  filters,
+  state,
+  error,
+  onFilterChange,
+  onRefresh,
+}) {
+  return (
+    <section className="audit-panel">
+      <div className="section-heading">
+        <div>
+          <h2>Audit & Compliance</h2>
+          <p>Trace sensitive SOC, governance, collector, incident, and threat-intel actions.</p>
+        </div>
+        <button type="button" disabled={state === "loading"} onClick={onRefresh}>
+          {state === "loading" ? "Refreshing..." : "Refresh Audit"}
+        </button>
+      </div>
+
+      {error && <span className="form-error">{error}</span>}
+
+      <div className="audit-summary-grid">
+        <div>
+          <span>Total events</span>
+          <strong>{summary?.total ?? 0}</strong>
+        </div>
+        <div>
+          <span>Denied</span>
+          <strong>{summary?.denied ?? 0}</strong>
+        </div>
+        <div>
+          <span>Failures</span>
+          <strong>{summary?.failures ?? 0}</strong>
+        </div>
+        <div>
+          <span>Top category</span>
+          <strong>{summary?.by_category?.[0]?.category ?? "none"}</strong>
+        </div>
+      </div>
+
+      <div className="audit-filter-row">
+        <label>
+          <span>Category</span>
+          <select value={filters.category} onChange={(event) => onFilterChange("category", event.target.value)}>
+            <option value="">All categories</option>
+            {["auth", "rbac", "user_governance", "collector", "incident", "alert", "attack_chain", "threat_intel", "graph", "system"].map((category) => (
+              <option key={category} value={category}>{category}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Outcome</span>
+          <select value={filters.outcome} onChange={(event) => onFilterChange("outcome", event.target.value)}>
+            <option value="">All outcomes</option>
+            <option value="success">success</option>
+            <option value="failure">failure</option>
+            <option value="denied">denied</option>
+          </select>
+        </label>
+      </div>
+
+      {logs.length === 0 ? (
+        <p className="empty-state">No audit events match the current filters.</p>
+      ) : (
+        <ul className="audit-list">
+          {logs.slice(0, 50).map((audit) => (
+            <li key={audit.id} className={`audit-${audit.outcome}`}>
+              <div className="record-title-row">
+                <strong>{audit.action}</strong>
+                <span className={`account-pill ${audit.outcome === "success" ? "account-active" : "account-inactive"}`}>
+                  {audit.outcome}
+                </span>
+              </div>
+              <p>{audit.actor_username ?? "system"} | {audit.actor_role ?? "n/a"} | {audit.category}</p>
+              <div className="activity-meta">
+                <span>{audit.target_type ?? "target"} #{audit.target_id ?? "n/a"}</span>
+                {audit.target_label && <span>{audit.target_label}</span>}
+                <span>{formatDateTime(audit.created_at)}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function CollectorManagementPanel({
   collectors,
   healthSummary,
@@ -2924,6 +3013,11 @@ export default function Dashboard() {
   const [adminError, setAdminError] = useState("");
   const [adminForm, setAdminForm] = useState({ full_name: "", email: "" });
   const [adminRole, setAdminRole] = useState("analyst");
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [auditSummary, setAuditSummary] = useState(null);
+  const [auditState, setAuditState] = useState("idle");
+  const [auditError, setAuditError] = useState("");
+  const [auditFilters, setAuditFilters] = useState({ category: "", outcome: "" });
   const [collectors, setCollectors] = useState([]);
   const [collectorHealthSummary, setCollectorHealthSummary] = useState({
     total_collectors: 0,
@@ -2964,6 +3058,7 @@ export default function Dashboard() {
   const canManageCollectors = can(currentUser, PERMISSIONS.COLLECTOR_MANAGE);
   const canCreateCollectors = can(currentUser, PERMISSIONS.COLLECTOR_CREATE);
   const isAdmin = can(currentUser, PERMISSIONS.USER_READ);
+  const canReadAudit = can(currentUser, PERMISSIONS.AUDIT_READ);
   const isSuperAdmin = currentEffectiveRole === "super_admin";
 
   useEffect(() => {
@@ -3061,12 +3156,18 @@ export default function Dashboard() {
       setSelectedAdminUserId("");
       setAdminUserDetail(null);
     }
+    if (canReadAudit) {
+      loadAuditLogs();
+    } else {
+      setAuditLogs([]);
+      setAuditSummary(null);
+    }
     if (!currentUser) {
       setCollectors([]);
       setCollectorHealthSummary({ total_collectors: 0, online: 0, degraded: 0, stale: 0, offline: 0, revoked: 0 });
       setCollectorFleetSummary(null);
     }
-  }, [currentUser?.id, isAdmin]);
+  }, [currentUser?.id, isAdmin, canReadAudit]);
 
   useEffect(() => {
     if (currentUser) {
@@ -3165,6 +3266,33 @@ export default function Dashboard() {
       setAdminForm({ full_name: "", email: "" });
       setAdminRole("analyst");
     }
+  }
+
+  async function loadAuditLogs(nextFilters = auditFilters) {
+    if (!canReadAudit) return;
+    try {
+      setAuditState("loading");
+      setAuditError("");
+      const params = new URLSearchParams({ limit: "50" });
+      if (nextFilters.category) params.set("category", nextFilters.category);
+      if (nextFilters.outcome) params.set("outcome", nextFilters.outcome);
+      const [logsResult, summaryResult] = await Promise.all([
+        apiGet(`/api/audit/logs?${params.toString()}`),
+        apiGet("/api/audit/summary"),
+      ]);
+      setAuditLogs(logsResult.logs ?? []);
+      setAuditSummary(summaryResult);
+      setAuditState("ready");
+    } catch (requestError) {
+      setAuditError(requestError.message);
+      setAuditState("error");
+    }
+  }
+
+  function handleAuditFilterChange(name, value) {
+    const nextFilters = { ...auditFilters, [name]: value };
+    setAuditFilters(nextFilters);
+    loadAuditLogs(nextFilters);
   }
 
   async function loadCollectors() {
@@ -4469,6 +4597,18 @@ export default function Dashboard() {
           onDisapprove={handleAdminDisapproveUser}
           onDelete={handleAdminDeleteUser}
           onRefresh={loadAdminUsers}
+        />
+      )}
+
+      {status === "ready" && canReadAudit && (
+        <AuditCompliancePanel
+          logs={auditLogs}
+          summary={auditSummary}
+          filters={auditFilters}
+          state={auditState}
+          error={auditError}
+          onFilterChange={handleAuditFilterChange}
+          onRefresh={() => loadAuditLogs()}
         />
       )}
 

@@ -3,7 +3,7 @@
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -12,6 +12,7 @@ from app.db import models
 from app.db.database import ensure_attack_chain_schema
 from app.security.permissions import Permission, require_permission
 from app.services.activity_service import add_activity
+from app.services.audit_log_service import log_success
 from app.services.attack_chain_engine import build_attack_chains
 from app.services.attack_chain_persistence_service import (
     materialize_attack_chains,
@@ -29,6 +30,7 @@ logger = logging.getLogger(__name__)
 @router.post("/attack-chains/rebuild", summary="Rebuild and persist attack-chain intelligence")
 async def rebuild_attack_chain_intelligence(
     limit: int = Query(50, ge=1, le=200),
+    request: Request = None,
     db: Session = Depends(get_db),
     user: models.User = Depends(require_permission(Permission.ATTACK_CHAIN_REBUILD)),
 ) -> dict[str, Any]:
@@ -77,6 +79,23 @@ async def rebuild_attack_chain_intelligence(
     try:
         db.commit()
         db.refresh(activity)
+        log_success(
+            db,
+            action="attack_chains_rebuilt",
+            category="attack_chain",
+            actor=user,
+            request=request,
+            target_type="attack_chain",
+            target_label="attack-chain rebuild",
+            metadata={
+                "chains_generated": materialization["chains_generated"],
+                "chains_persisted": materialization["chains_persisted"],
+                "steps_persisted": materialization["steps_persisted"],
+                "campaigns_persisted": materialization["campaigns_persisted"],
+                "persistence_errors": len(materialization["persistence_errors"]),
+            },
+        )
+        db.commit()
         logger.info(
             "Attack-chain rebuild commit succeeded generated=%s persisted=%s steps=%s campaigns=%s errors=%s",
             materialization["chains_generated"],
@@ -231,6 +250,7 @@ def retrieve_attack_chain_timeline(
 async def update_attack_chain_status(
     chain_id: str,
     payload: dict[str, str] = Body(...),
+    request: Request = None,
     db: Session = Depends(get_db),
     user: models.User = Depends(require_permission(Permission.ATTACK_CHAIN_UPDATE)),
 ) -> dict[str, Any]:
@@ -255,6 +275,18 @@ async def update_attack_chain_status(
     db.commit()
     db.refresh(chain)
     db.refresh(activity)
+    log_success(
+        db,
+        action="attack_chain_status_changed",
+        category="attack_chain",
+        actor=user,
+        request=request,
+        target_type="attack_chain",
+        target_id=chain.id,
+        target_label=chain.title,
+        metadata={"next_status": next_status},
+    )
+    db.commit()
     await websocket_manager.broadcast_activity({"type": "activity_created", "activity": serialize_activity(activity)})
     await websocket_manager.broadcast_event("attack_chain_updated", {"chain_id": chain.id, "status": next_status})
     return serialize_attack_chain(chain)

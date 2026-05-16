@@ -1245,7 +1245,8 @@ body {
   opacity: 0.6;
 }
 
-.admin-panel {
+.admin-panel,
+.audit-panel {
   border: 1px solid #203047;
   border-radius: 8px;
   background: #101c2f;
@@ -1261,21 +1262,25 @@ body {
   padding: 18px;
 }
 
-.collector-panel .section-heading {
+.collector-panel .section-heading,
+.audit-panel .section-heading {
   align-items: flex-start;
 }
 
-.collector-panel h2 {
+.collector-panel h2,
+.audit-panel h2 {
   margin: 0;
   font-size: 18px;
 }
 
-.collector-panel p {
+.collector-panel p,
+.audit-panel p {
   color: #93a4b8;
   margin: 6px 0 0;
 }
 
 .collector-panel .section-heading button,
+.audit-panel .section-heading button,
 .collector-key-box button {
   border: 1px solid #38bdf8;
   border-radius: 6px;
@@ -1285,6 +1290,77 @@ body {
   font: inherit;
   font-size: 13px;
   padding: 9px 12px;
+}
+
+.audit-summary-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  margin-top: 16px;
+}
+
+.audit-summary-grid div {
+  border: 1px solid #203047;
+  border-radius: 8px;
+  background: #0b1424;
+  padding: 12px;
+}
+
+.audit-summary-grid span {
+  color: #93a4b8;
+  display: block;
+  font-size: 12px;
+}
+
+.audit-summary-grid strong {
+  color: #e5edf6;
+  display: block;
+  font-size: 20px;
+  margin-top: 4px;
+}
+
+.audit-filter-row {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-top: 16px;
+}
+
+.audit-filter-row label {
+  color: #9fb0c7;
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.audit-filter-row select {
+  border: 1px solid #29405f;
+  border-radius: 6px;
+  background: #0b1424;
+  color: #e5edf6;
+  font: inherit;
+  padding: 10px 12px;
+}
+
+.audit-list {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+}
+
+.audit-list li {
+  border: 1px solid #203047;
+  border-radius: 8px;
+  background: #0d1728;
+  padding: 12px;
+}
+
+.audit-list li.audit-denied,
+.audit-list li.audit-failure {
+  border-color: #7f1d1d;
 }
 
 .collector-key-header,

@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
@@ -26,6 +26,7 @@ from app.schemas.threat_ioc import (
 )
 from app.services.ioc_correlation_engine import correlate_indicators
 from app.services.ioc_graph_enrichment import enrich_entity_with_iocs, relationship_summary
+from app.services.audit_log_service import log_success
 from app.services.threat_intel_feed_service import correlate_iocs, ingest_iocs, normalize_and_ingest_feed
 from app.services.websocket_manager import websocket_manager
 
@@ -83,11 +84,23 @@ def search_iocs(
 @router.post("/iocs", response_model=ThreatIOCIngestResponse, summary="Ingest one IOC")
 async def create_ioc(
     payload: ThreatIOCCreate,
+    request: Request,
     db: Session = Depends(get_db),
     user: models.User = Depends(require_permission(Permission.THREAT_INTEL_RUN)),
 ) -> dict[str, Any]:
     """Create or update a single normalized IOC."""
     result = ingest_iocs(db, [payload], actor_username=user.username, actor_role=user.role)
+    log_success(
+        db,
+        action="threat_ioc_ingested",
+        category="threat_intel",
+        actor=user,
+        request=request,
+        target_type="ioc",
+        target_label=payload.value,
+        metadata={"created": result["created"], "updated": result["updated"], "source": payload.source},
+    )
+    db.commit()
     await websocket_manager.broadcast_activity({"type": "threat_ioc_ingested", "payload": {"created": result["created"], "updated": result["updated"]}})
     return {**result, "source": payload.source}
 
@@ -95,12 +108,24 @@ async def create_ioc(
 @router.post("/iocs/bulk", response_model=ThreatIOCIngestResponse, summary="Bulk ingest IOCs")
 async def bulk_create_iocs(
     payload: ThreatIOCBulkCreate,
+    request: Request,
     db: Session = Depends(get_db),
     user: models.User = Depends(require_permission(Permission.THREAT_INTEL_RUN)),
 ) -> dict[str, Any]:
     """Create or update a batch of normalized IOCs."""
     indicators = [indicator.model_copy(update={"source": indicator.source or payload.source}) for indicator in payload.indicators]
     result = ingest_iocs(db, indicators, actor_username=user.username, actor_role=user.role)
+    log_success(
+        db,
+        action="threat_ioc_bulk_ingested",
+        category="threat_intel",
+        actor=user,
+        request=request,
+        target_type="ioc",
+        target_label=payload.source,
+        metadata={"created": result["created"], "updated": result["updated"], "skipped": result["skipped"], "received": len(indicators)},
+    )
+    db.commit()
     await websocket_manager.broadcast_activity({"type": "threat_ioc_ingested", "payload": {"created": result["created"], "updated": result["updated"]}})
     return {**result, "source": payload.source}
 
@@ -108,6 +133,7 @@ async def bulk_create_iocs(
 @router.post("/feeds/normalize", response_model=ThreatIOCIngestResponse, summary="Normalize and ingest feed payload")
 async def normalize_feed(
     payload: FeedNormalizeRequest,
+    request: Request,
     db: Session = Depends(get_db),
     user: models.User = Depends(require_permission(Permission.THREAT_INTEL_RUN)),
 ) -> dict[str, Any]:
@@ -120,6 +146,17 @@ async def normalize_feed(
         actor_username=user.username,
         actor_role=user.role,
     )
+    log_success(
+        db,
+        action="threat_feed_normalized",
+        category="threat_intel",
+        actor=user,
+        request=request,
+        target_type="feed",
+        target_label=payload.source,
+        metadata={"created": result["created"], "updated": result["updated"], "skipped": result["skipped"]},
+    )
+    db.commit()
     await websocket_manager.broadcast_activity({"type": "threat_ioc_ingested", "payload": {"created": result["created"], "updated": result["updated"]}})
     return {**result, "source": payload.source}
 
@@ -131,16 +168,39 @@ async def normalize_feed(
 )
 async def correlate_threat_iocs(
     payload: IOCCorrelateRequest | None = Body(default=None),
+    request: Request = None,
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_permission(Permission.THREAT_INTEL_RUN)),
+    user: models.User = Depends(require_permission(Permission.THREAT_INTEL_RUN)),
 ) -> dict[str, Any]:
     """Create IOC relationships or correlate supplied raw indicators against stored IOCs."""
     if payload and payload.indicators:
         result = correlate_indicators(db, payload.indicators)
+        log_success(
+            db,
+            action="threat_ioc_correlation_run",
+            category="threat_intel",
+            actor=user,
+            request=request,
+            target_type="ioc",
+            target_label="supplied indicators",
+            metadata={"matches_found": result["matches_found"], "indicator_count": len(payload.indicators)},
+        )
+        db.commit()
         await websocket_manager.broadcast_activity({"type": "threat_ioc_lookup_completed", "payload": {"matches_found": result["matches_found"]}})
         return result
 
     result = correlate_iocs(db)
+    log_success(
+        db,
+        action="threat_ioc_correlation_run",
+        category="threat_intel",
+        actor=user,
+        request=request,
+        target_type="ioc",
+        target_label="stored IOC corpus",
+        metadata=result,
+    )
+    db.commit()
     await websocket_manager.broadcast_activity({"type": "threat_ioc_correlated", "payload": result})
     await websocket_manager.broadcast_activity({"type": "graph_updated"})
     return result

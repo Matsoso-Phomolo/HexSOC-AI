@@ -1,12 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.db import models
 from app.schemas.alert import AlertCreate, AlertRead, AlertStatusUpdate
+from app.security.permissions import Permission, require_permission
 from app.services.activity_service import add_activity
 from app.services.automated_correlation_engine import auto_correlate_entity
-from app.services.auth_service import require_role
+from app.services.audit_log_service import log_success
 from app.services.websocket_manager import serialize_activity, serialize_alert, websocket_manager
 
 router = APIRouter()
@@ -15,8 +16,9 @@ router = APIRouter()
 @router.post("/", response_model=AlertRead, status_code=201, summary="Create alert")
 async def create_alert(
     payload: AlertCreate,
+    request: Request,
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role("analyst")),
+    user: models.User = Depends(require_permission(Permission.SOC_WRITE)),
 ) -> models.Alert:
     """Store an analyst-facing alert."""
     alert = models.Alert(**payload.dict())
@@ -29,10 +31,24 @@ async def create_alert(
         entity_id=alert.id,
         message=f"Alert created: {alert.title}",
         severity=alert.severity,
+        actor_username=user.username,
+        actor_role=user.role,
     )
     db.commit()
     db.refresh(alert)
     db.refresh(activity)
+    log_success(
+        db,
+        action="alert_created",
+        category="alert",
+        actor=user,
+        request=request,
+        target_type="alert",
+        target_id=alert.id,
+        target_label=alert.title,
+        metadata={"severity": alert.severity, "status": alert.status, "source": alert.source},
+    )
+    db.commit()
     try:
         auto_correlate_entity(
             db,
@@ -68,8 +84,9 @@ def list_alerts(db: Session = Depends(get_db)) -> list[models.Alert]:
 async def update_alert_status(
     alert_id: int,
     payload: AlertStatusUpdate,
+    request: Request,
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role("analyst")),
+    user: models.User = Depends(require_permission(Permission.ALERT_UPDATE)),
 ) -> models.Alert:
     """Update the lifecycle status for an alert."""
     alert = db.get(models.Alert, alert_id)
@@ -85,10 +102,24 @@ async def update_alert_status(
         entity_id=alert.id,
         message=f"Alert status changed from {previous_status} to {alert.status}",
         severity=alert.severity,
+        actor_username=user.username,
+        actor_role=user.role,
     )
     db.commit()
     db.refresh(alert)
     db.refresh(activity)
+    log_success(
+        db,
+        action="alert_status_changed",
+        category="alert",
+        actor=user,
+        request=request,
+        target_type="alert",
+        target_id=alert.id,
+        target_label=alert.title,
+        metadata={"previous_status": previous_status, "next_status": alert.status, "severity": alert.severity},
+    )
+    db.commit()
     await websocket_manager.broadcast_alert(
         {
             "type": "alert_status_changed",

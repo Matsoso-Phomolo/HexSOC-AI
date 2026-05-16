@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -9,6 +9,7 @@ from app.db import models
 from app.schemas.incident import IncidentCreate, IncidentRead, IncidentStatusUpdate
 from app.security.permissions import Permission, require_permission
 from app.services.activity_service import add_activity
+from app.services.audit_log_service import log_success
 from app.services.attack_chain_persistence_service import serialize_attack_chain, serialize_campaign
 from app.services.incident_escalation_engine import escalate_attack_chain, escalate_campaign, escalate_context
 from app.services.incident_workspace_service import build_incident_workspace
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 @router.post("/", response_model=IncidentRead, status_code=201, summary="Create incident")
 async def create_incident(
     payload: IncidentCreate,
+    request: Request,
     db: Session = Depends(get_db),
     user: models.User = Depends(require_permission(Permission.INCIDENT_UPDATE)),
 ) -> models.Incident:
@@ -44,6 +46,18 @@ async def create_incident(
     db.commit()
     db.refresh(incident)
     db.refresh(activity)
+    log_success(
+        db,
+        action="incident_created",
+        category="incident",
+        actor=user,
+        request=request,
+        target_type="incident",
+        target_id=incident.id,
+        target_label=incident.title,
+        metadata={"severity": incident.severity, "status": incident.status},
+    )
+    db.commit()
     await websocket_manager.broadcast_activity(
         {"type": "activity_created", "activity": serialize_activity(activity)}
     )
@@ -62,6 +76,7 @@ def list_incidents(db: Session = Depends(get_db)) -> list[models.Incident]:
 async def update_incident_status(
     incident_id: int,
     payload: IncidentStatusUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     user: models.User = Depends(require_permission(Permission.INCIDENT_UPDATE)),
 ) -> models.Incident:
@@ -83,6 +98,18 @@ async def update_incident_status(
     db.commit()
     db.refresh(incident)
     db.refresh(activity)
+    log_success(
+        db,
+        action="incident_status_changed",
+        category="incident",
+        actor=user,
+        request=request,
+        target_type="incident",
+        target_id=incident.id,
+        target_label=incident.title,
+        metadata={"previous_status": previous_status, "next_status": incident.status},
+    )
+    db.commit()
     await websocket_manager.broadcast_alert(
         {
             "type": "incident_status_changed",
@@ -114,6 +141,7 @@ def get_incident_workspace(
 @router.post("/{incident_id}/workspace/evidence-checklist", summary="Create evidence checklist records")
 async def create_workspace_evidence_checklist(
     incident_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     user: models.User = Depends(require_permission(Permission.CASE_MANAGE)),
 ) -> dict:
@@ -157,6 +185,18 @@ async def create_workspace_evidence_checklist(
     )
     db.commit()
     db.refresh(activity)
+    log_success(
+        db,
+        action="workspace_evidence_checklist_created",
+        category="incident",
+        actor=user,
+        request=request,
+        target_type="incident",
+        target_id=incident.id,
+        target_label=incident.title,
+        metadata={"created": created},
+    )
+    db.commit()
     await websocket_manager.broadcast_activity({"type": "activity_created", "activity": serialize_activity(activity)})
     await websocket_manager.broadcast_event("case_evidence_added", {"incident_id": incident.id})
     await websocket_manager.broadcast_dashboard_metrics(db)
@@ -166,6 +206,7 @@ async def create_workspace_evidence_checklist(
 @router.post("/escalate/attack-chain/{chain_id}", summary="Escalate attack chain to incident")
 async def escalate_attack_chain_incident(
     chain_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     user: models.User = Depends(require_permission(Permission.INCIDENT_ESCALATE)),
 ) -> dict:
@@ -191,7 +232,7 @@ async def escalate_attack_chain_incident(
                 "reason": str(exc.__class__.__name__),
             },
         ) from exc
-    await _finalize_escalation(db, user, result)
+    await _finalize_escalation(db, user, result, request=request)
     logger.info(
         "Attack-chain escalation completed",
         extra={"chain_id": chain_id, "incident_id": result.get("incident_id"), "incident_created": result.get("created")},
@@ -202,6 +243,7 @@ async def escalate_attack_chain_incident(
 @router.post("/escalate/campaign/{campaign_id}", summary="Escalate campaign to incident")
 async def escalate_campaign_incident(
     campaign_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     user: models.User = Depends(require_permission(Permission.INCIDENT_ESCALATE)),
 ) -> dict:
@@ -213,13 +255,14 @@ async def escalate_campaign_incident(
     recommendation = recommend_for_campaign(campaign_payload)
     result = escalate_campaign(db, campaign_payload, recommendation)
     await _commit_escalation(db, result)
-    await _finalize_escalation(db, user, result)
+    await _finalize_escalation(db, user, result, request=request)
     return result
 
 
 @router.post("/escalate/context", summary="Escalate supplied context to incident")
 async def escalate_context_incident(
     payload: dict,
+    request: Request,
     db: Session = Depends(get_db),
     user: models.User = Depends(require_permission(Permission.INCIDENT_ESCALATE)),
 ) -> dict:
@@ -234,7 +277,7 @@ async def escalate_context_incident(
         recommendation = recommend_for_context(entity_type, entity_id, context)
     result = escalate_context(db, entity_type=entity_type, entity_id=entity_id, context=context, recommendation=recommendation)
     await _commit_escalation(db, result)
-    await _finalize_escalation(db, user, result)
+    await _finalize_escalation(db, user, result, request=request)
     return result
 
 
@@ -268,7 +311,7 @@ async def _commit_escalation(db: Session, result: dict) -> None:
     )
 
 
-async def _finalize_escalation(db: Session, user: models.User, result: dict) -> None:
+async def _finalize_escalation(db: Session, user: models.User, result: dict, *, request: Request | None = None) -> None:
     severity = "critical" if result.get("priority") == "critical" else "high" if result.get("escalated") else "info"
     action = "incident_escalated" if result.get("escalated") else "incident_escalation_skipped"
     try:
@@ -284,6 +327,23 @@ async def _finalize_escalation(db: Session, user: models.User, result: dict) -> 
         )
         db.commit()
         db.refresh(activity)
+        log_success(
+            db,
+            action=action,
+            category="incident",
+            actor=user,
+            request=request,
+            target_type="incident",
+            target_id=result.get("incident_id"),
+            target_label=str(result.get("linked_entity_id") or "incident escalation"),
+            metadata={
+                "created": result.get("created"),
+                "linked_entity_type": result.get("linked_entity_type"),
+                "linked_entity_id": result.get("linked_entity_id"),
+                "priority": result.get("priority"),
+            },
+        )
+        db.commit()
         await websocket_manager.broadcast_activity({"type": "activity_created", "activity": serialize_activity(activity)})
         await websocket_manager.broadcast_event(
             "incident_escalated",

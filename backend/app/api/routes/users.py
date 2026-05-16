@@ -3,7 +3,7 @@
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -20,6 +20,7 @@ from app.schemas.user import (
 )
 from app.security.permissions import Permission, require_permission
 from app.services.activity_service import add_activity
+from app.services.audit_log_service import log_success
 from app.services.auth_service import (
     APPROVAL_REQUIRED_ROLES,
     PENDING_ADMIN_APPROVAL_REASON,
@@ -78,6 +79,7 @@ def get_user(
 async def update_user(
     user_id: int,
     payload: UserUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     actor: models.User = Depends(require_permission(Permission.USER_MANAGE)),
 ) -> UserAdminRead:
@@ -110,6 +112,18 @@ async def update_user(
 
     db.refresh(user)
     db.refresh(activity)
+    log_success(
+        db,
+        action="user_updated",
+        category="user_governance",
+        actor=actor,
+        request=request,
+        target_type="user",
+        target_id=user.id,
+        target_label=user.username,
+        metadata={"updated_fields": [key for key, value in payload.model_dump().items() if value is not None]},
+    )
+    db.commit()
     await _broadcast_user_action("user_updated", user, activity)
     return _user_read(user)
 
@@ -117,6 +131,7 @@ async def update_user(
 @router.post("/{user_id}/activate", response_model=UserAdminRead, summary="Activate user")
 async def activate_user(
     user_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     actor: models.User = Depends(require_permission(Permission.USER_MANAGE)),
 ) -> UserAdminRead:
@@ -141,6 +156,18 @@ async def activate_user(
     db.commit()
     db.refresh(user)
     db.refresh(activity)
+    log_success(
+        db,
+        action="user_activated",
+        category="user_governance",
+        actor=actor,
+        request=request,
+        target_type="user",
+        target_id=user.id,
+        target_label=user.username,
+        metadata={"role": user.role},
+    )
+    db.commit()
     await _broadcast_user_action("user_activated", user, activity)
     return _user_read(user)
 
@@ -149,6 +176,7 @@ async def activate_user(
 async def deactivate_user(
     user_id: int,
     payload: UserDeactivateRequest | None = None,
+    request: Request = None,
     db: Session = Depends(get_db),
     actor: models.User = Depends(require_permission(Permission.USER_MANAGE)),
 ) -> UserAdminRead:
@@ -174,6 +202,18 @@ async def deactivate_user(
     db.commit()
     db.refresh(user)
     db.refresh(activity)
+    log_success(
+        db,
+        action="user_deactivated",
+        category="user_governance",
+        actor=actor,
+        request=request,
+        target_type="user",
+        target_id=user.id,
+        target_label=user.username,
+        metadata={"role": user.role, "disabled_reason": user.disabled_reason},
+    )
+    db.commit()
     await _broadcast_user_action("user_deactivated", user, activity)
     return _user_read(user)
 
@@ -181,6 +221,7 @@ async def deactivate_user(
 @router.post("/{user_id}/disapprove", response_model=UserAdminRead, summary="Disapprove pending privileged user")
 async def disapprove_user(
     user_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     actor: models.User = Depends(require_permission(Permission.USER_APPROVE_PRIVILEGED)),
 ) -> UserAdminRead:
@@ -209,6 +250,18 @@ async def disapprove_user(
     db.commit()
     db.refresh(user)
     db.refresh(activity)
+    log_success(
+        db,
+        action="user_disapproved",
+        category="user_governance",
+        actor=actor,
+        request=request,
+        target_type="user",
+        target_id=user.id,
+        target_label=user.username,
+        metadata={"role": user.role},
+    )
+    db.commit()
     await _broadcast_user_action("user_disapproved", user, activity)
     return _user_read(user)
 
@@ -216,6 +269,7 @@ async def disapprove_user(
 @router.delete("/{user_id}", summary="Delete user")
 async def delete_user(
     user_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     actor: models.User = Depends(require_permission(Permission.USER_DELETE)),
 ) -> dict:
@@ -241,6 +295,18 @@ async def delete_user(
     db.delete(user)
     db.commit()
     db.refresh(activity)
+    log_success(
+        db,
+        action="user_deleted",
+        category="user_governance",
+        actor=actor,
+        request=request,
+        target_type="user",
+        target_id=user_id,
+        target_label=deleted_username,
+        metadata={"deleted_role": deleted_role},
+    )
+    db.commit()
     await websocket_manager.broadcast_activity({"type": "activity_created", "activity": serialize_activity(activity)})
     await websocket_manager.broadcast_activity(
         {"type": "user_deleted", "user_id": user_id, "username": deleted_username, "role": deleted_role}
@@ -252,6 +318,7 @@ async def delete_user(
 async def change_user_role(
     user_id: int,
     payload: UserRoleUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     actor: models.User = Depends(require_permission(Permission.USER_MANAGE)),
 ) -> UserAdminRead:
@@ -281,6 +348,18 @@ async def change_user_role(
     db.commit()
     db.refresh(user)
     db.refresh(activity)
+    log_success(
+        db,
+        action="user_role_changed",
+        category="user_governance",
+        actor=actor,
+        request=request,
+        target_type="user",
+        target_id=user.id,
+        target_label=user.username,
+        metadata={"previous_role": previous_role, "next_role": next_role},
+    )
+    db.commit()
     await _broadcast_user_action("user_role_changed", user, activity)
     return _user_read(user)
 

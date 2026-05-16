@@ -139,6 +139,28 @@ class LoginAudit(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class AuditLog(Base):
+    """Enterprise audit record for sensitive SOC and governance actions."""
+
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    actor_username = Column(String(120), nullable=True, index=True)
+    actor_role = Column(String(40), nullable=True, index=True)
+    action = Column(String(120), nullable=False, index=True)
+    category = Column(String(80), nullable=False, index=True)
+    target_type = Column(String(80), nullable=True, index=True)
+    target_id = Column(String(120), nullable=True, index=True)
+    target_label = Column(String(255), nullable=True)
+    outcome = Column(String(40), nullable=False, default="success", index=True)
+    ip_address = Column(String(64), nullable=True)
+    user_agent = Column(String(500), nullable=True)
+    request_id = Column(String(120), nullable=True, index=True)
+    audit_metadata = Column("metadata", JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class Collector(Base):
     """External telemetry collector authenticated by a hashed API key."""
 

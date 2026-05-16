@@ -28,6 +28,7 @@ export const PERMISSIONS = {
   USER_DELETE: "user.delete",
   USER_GRANT_PRIVILEGED_ROLE: "user.grant_privileged_role",
   USER_APPROVE_PRIVILEGED: "user.approve_privileged",
+  AUDIT_READ: "audit.read",
 };
 
 const VIEWER = new Set([
@@ -63,6 +64,7 @@ const ADMIN = new Set([
   PERMISSIONS.COLLECTOR_MANAGE,
   PERMISSIONS.USER_READ,
   PERMISSIONS.USER_MANAGE,
+  PERMISSIONS.AUDIT_READ,
 ]);
 
 const SUPER_ADMIN = new Set([

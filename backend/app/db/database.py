@@ -212,6 +212,7 @@ def sync_phase2_schema() -> None:
         "ALTER TABLE login_audits ADD COLUMN IF NOT EXISTS ip_address VARCHAR(64)",
         "ALTER TABLE login_audits ADD COLUMN IF NOT EXISTS user_agent VARCHAR(500)",
         "ALTER TABLE login_audits ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL",
+        *_audit_schema_statements(),
         "CREATE TABLE IF NOT EXISTS collectors (id SERIAL PRIMARY KEY, name VARCHAR(160) NOT NULL, description TEXT, api_key_hash VARCHAR(128) NOT NULL, key_prefix VARCHAR(32) NOT NULL, collector_type VARCHAR(80) NOT NULL DEFAULT 'custom_json', source_label VARCHAR(120), is_active BOOLEAN NOT NULL DEFAULT true, last_seen_at TIMESTAMP WITH TIME ZONE, agent_version VARCHAR(40), host_name VARCHAR(255), os_name VARCHAR(120), os_version VARCHAR(255), last_event_count INTEGER, last_error TEXT, heartbeat_count INTEGER NOT NULL DEFAULT 0, last_heartbeat_at TIMESTAMP WITH TIME ZONE, health_status VARCHAR(40) NOT NULL DEFAULT 'offline', created_by VARCHAR(120), created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL, revoked_at TIMESTAMP WITH TIME ZONE)",
         "ALTER TABLE collectors ADD COLUMN IF NOT EXISTS name VARCHAR(160)",
         "ALTER TABLE collectors ADD COLUMN IF NOT EXISTS description TEXT",
@@ -380,6 +381,7 @@ def sync_production_schema() -> None:
     statements = [
         "ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS actor_username VARCHAR(120)",
         "ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS actor_role VARCHAR(40)",
+        *_audit_schema_statements(),
         "CREATE TABLE IF NOT EXISTS threat_iocs (id SERIAL PRIMARY KEY, ioc_type VARCHAR(40) NOT NULL, value VARCHAR(1000) NOT NULL, normalized_value VARCHAR(1000) NOT NULL, source VARCHAR(120) NOT NULL, source_reference VARCHAR(500), confidence_score INTEGER NOT NULL DEFAULT 50, risk_score INTEGER NOT NULL DEFAULT 50, severity VARCHAR(40) NOT NULL DEFAULT 'medium', tags JSON, classification VARCHAR(120), description TEXT, first_seen_at TIMESTAMP WITH TIME ZONE, last_seen_at TIMESTAMP WITH TIME ZONE, expires_at TIMESTAMP WITH TIME ZONE, is_active BOOLEAN NOT NULL DEFAULT true, raw_payload JSON, created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL, updated_at TIMESTAMP WITH TIME ZONE)",
         "ALTER TABLE threat_iocs ADD COLUMN IF NOT EXISTS ioc_type VARCHAR(40)",
         "ALTER TABLE threat_iocs ADD COLUMN IF NOT EXISTS value VARCHAR(1000)",
@@ -448,6 +450,39 @@ def _execute_schema_statements(statements: list[str], label: str) -> None:
         logger.warning("%s completed with %s skipped additive statements", label, skipped)
     else:
         logger.info("%s completed", label)
+
+
+def _audit_schema_statements() -> list[str]:
+    """Return additive schema statements for enterprise audit logging."""
+    return [
+        "CREATE TABLE IF NOT EXISTS audit_logs (id SERIAL PRIMARY KEY, actor_user_id INTEGER, actor_username VARCHAR(120), actor_role VARCHAR(40), action VARCHAR(120) NOT NULL, category VARCHAR(80) NOT NULL, target_type VARCHAR(80), target_id VARCHAR(120), target_label VARCHAR(255), outcome VARCHAR(40) NOT NULL DEFAULT 'success', ip_address VARCHAR(64), user_agent VARCHAR(500), request_id VARCHAR(120), metadata JSON, created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL)",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS actor_user_id INTEGER",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS actor_username VARCHAR(120)",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS actor_role VARCHAR(40)",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS action VARCHAR(120)",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS category VARCHAR(80)",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS target_type VARCHAR(80)",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS target_id VARCHAR(120)",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS target_label VARCHAR(255)",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS outcome VARCHAR(40) DEFAULT 'success'",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS ip_address VARCHAR(64)",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS user_agent VARCHAR(500)",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS request_id VARCHAR(120)",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS metadata JSON",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL",
+        "UPDATE audit_logs SET action = 'unknown_action' WHERE action IS NULL OR action = ''",
+        "UPDATE audit_logs SET category = 'system' WHERE category IS NULL OR category = ''",
+        "UPDATE audit_logs SET outcome = 'success' WHERE outcome IS NULL OR outcome = ''",
+        "ALTER TABLE audit_logs ALTER COLUMN action SET DEFAULT 'unknown_action'",
+        "ALTER TABLE audit_logs ALTER COLUMN category SET DEFAULT 'system'",
+        "ALTER TABLE audit_logs ALTER COLUMN outcome SET DEFAULT 'success'",
+        "CREATE INDEX IF NOT EXISTS ix_audit_logs_actor_username ON audit_logs (actor_username)",
+        "CREATE INDEX IF NOT EXISTS ix_audit_logs_category ON audit_logs (category)",
+        "CREATE INDEX IF NOT EXISTS ix_audit_logs_action ON audit_logs (action)",
+        "CREATE INDEX IF NOT EXISTS ix_audit_logs_outcome ON audit_logs (outcome)",
+        "CREATE INDEX IF NOT EXISTS ix_audit_logs_target ON audit_logs (target_type, target_id)",
+        "CREATE INDEX IF NOT EXISTS ix_audit_logs_created_at ON audit_logs (created_at)",
+    ]
 
 
 def ensure_attack_chain_schema() -> None:
