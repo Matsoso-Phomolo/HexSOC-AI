@@ -14,6 +14,8 @@ Phase 4D.1 hardened network resilience. The next need is persistent operation wi
 - `agent/scripts/uninstall_windows_task.ps1`
 - `agent/scripts/start_agent_task.ps1`
 - `agent/scripts/stop_agent_task.ps1`
+- `agent/scripts/status_agent_task.ps1`
+- `agent/scripts/create_agent_shortcuts.ps1`
 - `agent/hexsoc_agent.py`
 - `docs/architecture/collector-service-mode.md`
 - `README.md`
@@ -24,6 +26,7 @@ Phase 4D.1 hardened network resilience. The next need is persistent operation wi
 - Added production log path guidance.
 - Added simple agent log rotation at 5 MB.
 - Documented state and queue status commands for operators.
+- Added local Desktop shortcut generation so operators can start, stop, install, uninstall, and inspect the agent task without retyping terminal commands.
 
 ## Architecture Impact
 The collector remains a lightweight Python endpoint agent while gaining persistent Windows runtime behavior.

@@ -355,6 +355,23 @@ Never commit real collector API keys. Rotate or revoke keys from the Live Collec
 
 HexSOC Agent can run as a Windows startup task through Task Scheduler.
 
+Preferred current control scripts live in `agent\scripts`. They run the production agent through the `HexSOCAgent` scheduled task:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File agent\scripts\install_windows_task.ps1
+powershell -ExecutionPolicy Bypass -File agent\scripts\start_agent_task.ps1
+powershell -ExecutionPolicy Bypass -File agent\scripts\stop_agent_task.ps1
+powershell -ExecutionPolicy Bypass -File agent\scripts\status_agent_task.ps1
+```
+
+To create double-click Desktop buttons for local operations:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File agent\scripts\create_agent_shortcuts.ps1
+```
+
+The browser dashboard cannot safely execute local Windows commands. Use these Desktop shortcuts when you want manual control without repeatedly opening a terminal.
+
 Install:
 
 ```powershell

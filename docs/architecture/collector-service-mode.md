@@ -26,9 +26,15 @@ The task reads production configuration from `agent/config.production.json` or e
 - Install: `agent/scripts/install_windows_task.ps1`
 - Start: `agent/scripts/start_agent_task.ps1`
 - Stop: `agent/scripts/stop_agent_task.ps1`
+- Status: `agent/scripts/status_agent_task.ps1`
 - Uninstall: `agent/scripts/uninstall_windows_task.ps1`
+- Desktop controls: `agent/scripts/create_agent_shortcuts.ps1`
 - Health/status: `python agent\hexsoc_agent.py --env production --state-status`
 - Queue status: `python agent\hexsoc_agent.py --env production --queue-status`
+
+## Desktop Control Buttons
+
+The cloud dashboard cannot launch a local Windows Python process from the browser. Local agent control is handled by Task Scheduler plus Desktop shortcuts. Running `agent/scripts/create_agent_shortcuts.ps1` creates shortcuts for install, start, stop, status, and uninstall operations. The shortcuts do not contain API keys and only invoke local PowerShell scripts.
 
 ## Log Management
 

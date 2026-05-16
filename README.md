@@ -324,8 +324,17 @@ Operate the task:
 ```powershell
 powershell -ExecutionPolicy Bypass -File agent\scripts\start_agent_task.ps1
 powershell -ExecutionPolicy Bypass -File agent\scripts\stop_agent_task.ps1
+powershell -ExecutionPolicy Bypass -File agent\scripts\status_agent_task.ps1
 powershell -ExecutionPolicy Bypass -File agent\scripts\uninstall_windows_task.ps1
 ```
+
+Create desktop control buttons:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File agent\scripts\create_agent_shortcuts.ps1
+```
+
+This creates local Desktop shortcuts for installing, starting, stopping, checking, and uninstalling the `HexSOCAgent` scheduled task. The Vercel dashboard cannot directly start a local Windows process from the browser, so these shortcuts provide the safe local control surface for running `python agent\hexsoc_agent.py --env production` in the background.
 
 The task runs:
 
