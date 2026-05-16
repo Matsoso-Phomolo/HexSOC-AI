@@ -12,6 +12,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
+import socket
+import ssl
 from urllib import error, request
 
 
@@ -124,6 +126,10 @@ def clear_successful_items(remaining_items: list[dict[str, Any]] | None = None, 
     write_queue(remaining_items or [], queue_path)
 
 
+class QueueNetworkError(RuntimeError):
+    """Controlled offline queue network failure."""
+
+
 def post_json(url: str, api_key: str, payload: dict[str, Any]) -> dict[str, Any]:
     """POST JSON using collector API key authentication."""
     body = json.dumps(payload).encode("utf-8")
@@ -143,8 +149,9 @@ def post_json(url: str, api_key: str, payload: dict[str, Any]) -> dict[str, Any]
     except error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"HexSOC API returned {exc.code}: {detail}") from exc
-    except error.URLError as exc:
-        raise RuntimeError(f"Could not reach HexSOC backend: {exc.reason}") from exc
+    except (TimeoutError, socket.timeout, ssl.SSLError, error.URLError, ConnectionError, OSError) as exc:
+        reason = exc.reason if isinstance(exc, error.URLError) else str(exc)
+        raise QueueNetworkError(f"Could not reach HexSOC backend: {reason}") from exc
 
 
 def flush_queue(

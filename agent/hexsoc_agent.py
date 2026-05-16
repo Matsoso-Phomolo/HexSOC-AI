@@ -11,7 +11,9 @@ import argparse
 import json
 import os
 import platform
+import random
 import socket
+import ssl
 import sys
 import time
 from pathlib import Path
@@ -60,6 +62,9 @@ DEFAULT_INTERVAL_SECONDS = 60
 DEFAULT_RETRY_DELAY_SECONDS = 10
 DEFAULT_MAX_RETRY_ATTEMPTS = 10
 DEFAULT_FINGERPRINT_HISTORY_LIMIT = 5000
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 30
+DEFAULT_MAX_NETWORK_RETRIES = 3
+DEFAULT_NETWORK_BACKOFF_SECONDS = 5
 WINDOWS_BULK_ENDPOINT = "/api/collectors/ingest/windows-events/bulk"
 NORMALIZED_BULK_ENDPOINT = "/api/collectors/ingest/events/bulk"
 ENV_CONFIG_FILES = {
@@ -72,12 +77,19 @@ ENV_OVERRIDES = {
     "HEXSOC_BACKEND_URL": "backend_url",
     "HEXSOC_API_KEY": "collector_api_key",
     "HEXSOC_AGENT_NAME": "agent_name",
+    "AGENT_REQUEST_TIMEOUT_SECONDS": "request_timeout_seconds",
+    "AGENT_MAX_RETRIES": "max_network_retries",
+    "AGENT_BACKOFF_SECONDS": "network_backoff_seconds",
 }
 LEGACY_ENV_OVERRIDES = {
     "COLLECTOR_API_KEY": "collector_api_key",
 }
 SECRET_FIELDS = {"collector_api_key"}
 LOG_FILE_PATH: Path | None = None
+
+
+class AgentNetworkError(RuntimeError):
+    """Controlled transient network failure raised by HexSOC Agent HTTP calls."""
 
 
 def configure_log_file(path: str | None) -> None:
@@ -442,7 +454,39 @@ def validate_runtime_config(environment: str, backend_url: str, api_key: str) ->
     return errors
 
 
-def post_json(url: str, api_key: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+def is_transient_network_error(exc: BaseException) -> bool:
+    """Return whether an exception represents a retryable transport failure."""
+    if isinstance(exc, (TimeoutError, socket.timeout, ssl.SSLError, ConnectionError)):
+        return True
+    if isinstance(exc, error.URLError):
+        return True
+    if isinstance(exc, OSError) and not isinstance(exc, error.HTTPError):
+        return True
+    return False
+
+
+def network_error_message(exc: BaseException) -> str:
+    """Return a concise network error for logs without secrets."""
+    if isinstance(exc, error.URLError):
+        return str(exc.reason)
+    return str(exc) or exc.__class__.__name__
+
+
+def retry_delay_seconds(backoff_seconds: int, attempt: int) -> float:
+    """Return bounded exponential backoff with small jitter."""
+    base = max(1, backoff_seconds) * (2 ** max(0, attempt - 1))
+    return min(base, 60) + random.uniform(0, 0.5)
+
+
+def post_json(
+    url: str,
+    api_key: str,
+    payload: dict[str, Any] | None = None,
+    *,
+    timeout_seconds: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    max_retries: int = DEFAULT_MAX_NETWORK_RETRIES,
+    backoff_seconds: int = DEFAULT_NETWORK_BACKOFF_SECONDS,
+) -> dict[str, Any]:
     """POST JSON to HexSOC with collector authentication."""
     body = json.dumps(payload or {}).encode("utf-8")
     req = request.Request(
@@ -455,14 +499,24 @@ def post_json(url: str, api_key: str, payload: dict[str, Any] | None = None) -> 
             "User-Agent": "HexSOC-Agent/0.1",
         },
     )
-    try:
-        with request.urlopen(req, timeout=30) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"HexSOC API returned {exc.code}: {detail}") from exc
-    except error.URLError as exc:
-        raise RuntimeError(f"Could not reach HexSOC backend: {exc.reason}") from exc
+    attempts = max(1, max_retries + 1)
+    for attempt in range(1, attempts + 1):
+        try:
+            with request.urlopen(req, timeout=max(1, timeout_seconds)) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"HexSOC API returned {exc.code}: {detail}") from exc
+        except (TimeoutError, socket.timeout, ssl.SSLError, error.URLError, ConnectionError, OSError) as exc:
+            if not is_transient_network_error(exc):
+                raise RuntimeError(f"HexSOC API request failed: {network_error_message(exc)}") from exc
+            message = network_error_message(exc)
+            if attempt >= attempts:
+                raise AgentNetworkError(f"Could not reach HexSOC backend after {attempt} attempt(s): {message}") from exc
+            delay = retry_delay_seconds(backoff_seconds, attempt)
+            log_line(f"[retry] network retry {attempt}/{max_retries} in {delay:.1f}s")
+            time.sleep(delay)
+    raise AgentNetworkError("Could not reach HexSOC backend")
 
 
 def now_label() -> str:
@@ -533,21 +587,56 @@ def send_heartbeat(
         f"{backend_url}/api/collectors/heartbeat",
         api_key,
         build_heartbeat_payload(config, last_event_count=last_event_count, last_error=last_error),
+        timeout_seconds=int(config.get("request_timeout_seconds", DEFAULT_REQUEST_TIMEOUT_SECONDS) or DEFAULT_REQUEST_TIMEOUT_SECONDS),
+        max_retries=int(config.get("max_network_retries", DEFAULT_MAX_NETWORK_RETRIES) or DEFAULT_MAX_NETWORK_RETRIES),
+        backoff_seconds=int(config.get("network_backoff_seconds", DEFAULT_NETWORK_BACKOFF_SECONDS) or DEFAULT_NETWORK_BACKOFF_SECONDS),
     )
 
 
-def send_windows_events(backend_url: str, api_key: str, events_payload: dict[str, Any], auto_detect: bool) -> dict[str, Any]:
+def send_windows_events(
+    backend_url: str,
+    api_key: str,
+    events_payload: dict[str, Any],
+    auto_detect: bool,
+    *,
+    request_timeout: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    max_network_retries: int = DEFAULT_MAX_NETWORK_RETRIES,
+    network_backoff: int = DEFAULT_NETWORK_BACKOFF_SECONDS,
+) -> dict[str, Any]:
     """Send Windows/Sysmon events through the collector ingestion endpoint."""
     endpoint = windows_events_endpoint(auto_detect)
     url = f"{backend_url}{endpoint}"
-    return post_json(url, api_key, events_payload)
+    return post_json(
+        url,
+        api_key,
+        events_payload,
+        timeout_seconds=request_timeout,
+        max_retries=max_network_retries,
+        backoff_seconds=network_backoff,
+    )
 
 
-def send_normalized_events(backend_url: str, api_key: str, events_payload: dict[str, Any], auto_detect: bool) -> dict[str, Any]:
+def send_normalized_events(
+    backend_url: str,
+    api_key: str,
+    events_payload: dict[str, Any],
+    auto_detect: bool,
+    *,
+    request_timeout: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    max_network_retries: int = DEFAULT_MAX_NETWORK_RETRIES,
+    network_backoff: int = DEFAULT_NETWORK_BACKOFF_SECONDS,
+) -> dict[str, Any]:
     """Send normalized events through the collector ingestion endpoint."""
     auto_detect_value = "true" if auto_detect else "false"
     url = f"{backend_url}{NORMALIZED_BULK_ENDPOINT}?auto_detect={auto_detect_value}"
-    return post_json(url, api_key, events_payload)
+    return post_json(
+        url,
+        api_key,
+        events_payload,
+        timeout_seconds=request_timeout,
+        max_retries=max_network_retries,
+        backoff_seconds=network_backoff,
+    )
 
 
 def windows_events_endpoint(auto_detect: bool) -> str:
@@ -662,6 +751,9 @@ def flush_agent_queue(
     queue_path: str,
     dead_letter_path: str,
     max_retry_attempts: int,
+    request_timeout: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    max_network_retries: int = DEFAULT_MAX_NETWORK_RETRIES,
+    network_backoff: int = DEFAULT_NETWORK_BACKOFF_SECONDS,
 ) -> dict[str, int]:
     """Flush queued telemetry and return queue summary."""
     return flush_queue(
@@ -670,6 +762,14 @@ def flush_agent_queue(
         queue_path=queue_path,
         dead_letter_path=dead_letter_path,
         max_retry_attempts=max_retry_attempts,
+        post_func=lambda url, key, payload: post_json(
+            url,
+            key,
+            payload,
+            timeout_seconds=request_timeout,
+            max_retries=max_network_retries,
+            backoff_seconds=network_backoff,
+        ),
     )
 
 
@@ -777,6 +877,9 @@ def main() -> int:
         or DEFAULT_INTERVAL_SECONDS
     )
     retry_delay = int(active_config.get("retry_delay_seconds", DEFAULT_RETRY_DELAY_SECONDS) or DEFAULT_RETRY_DELAY_SECONDS)
+    request_timeout = int(active_config.get("request_timeout_seconds", DEFAULT_REQUEST_TIMEOUT_SECONDS) or DEFAULT_REQUEST_TIMEOUT_SECONDS)
+    max_network_retries = int(active_config.get("max_network_retries", DEFAULT_MAX_NETWORK_RETRIES) or DEFAULT_MAX_NETWORK_RETRIES)
+    network_backoff = int(active_config.get("network_backoff_seconds", DEFAULT_NETWORK_BACKOFF_SECONDS) or DEFAULT_NETWORK_BACKOFF_SECONDS)
     if args.heartbeat_loop and args.telemetry_only:
         print("--heartbeat-loop and --telemetry-only cannot be used together.", file=sys.stderr)
         return 2
@@ -924,7 +1027,19 @@ def main() -> int:
         return 0
 
     if args.flush_queue:
-        print_flush_summary(environment, flush_agent_queue(backend_url, api_key, queue_path, dead_letter_path, max_retry_attempts))
+        print_flush_summary(
+            environment,
+            flush_agent_queue(
+                backend_url,
+                api_key,
+                queue_path,
+                dead_letter_path,
+                max_retry_attempts,
+                request_timeout,
+                max_network_retries,
+                network_backoff,
+            ),
+        )
         return 0
 
     if args.heartbeat_only:
@@ -947,6 +1062,9 @@ def main() -> int:
             queue_path=queue_path,
             fingerprint_history_limit=fingerprint_history_limit,
             debug=args.windows_debug,
+            request_timeout=request_timeout,
+            max_network_retries=max_network_retries,
+            network_backoff=network_backoff,
         )
         print(f"Windows events processed: {total_ingested}")
         return 0
@@ -967,6 +1085,9 @@ def main() -> int:
                 queue_path=queue_path,
                 fingerprint_history_limit=fingerprint_history_limit,
                 debug=args.windows_debug,
+                request_timeout=request_timeout,
+                max_network_retries=max_network_retries,
+                network_backoff=network_backoff,
             )
             print(f"Windows events processed: {total_ingested}")
             return 0
@@ -978,7 +1099,19 @@ def main() -> int:
         except RuntimeError as exc:
             print(f"Heartbeat failed and was not queued: {exc}")
         if queue_enabled:
-            print_flush_summary(environment, flush_agent_queue(backend_url, api_key, queue_path, dead_letter_path, max_retry_attempts))
+            print_flush_summary(
+                environment,
+                flush_agent_queue(
+                    backend_url,
+                    api_key,
+                    queue_path,
+                    dead_letter_path,
+                    max_retry_attempts,
+                    request_timeout,
+                    max_network_retries,
+                    network_backoff,
+                ),
+            )
         total_ingested = send_sample_batches(
             backend_url,
             api_key,
@@ -990,6 +1123,9 @@ def main() -> int:
             state_path=state_path,
             deduplicate_events=deduplicate_events,
             fingerprint_history_limit=fingerprint_history_limit,
+            request_timeout=request_timeout,
+            max_network_retries=max_network_retries,
+            network_backoff=network_backoff,
         )
         try:
             heartbeat = send_heartbeat(backend_url, api_key, active_config, last_event_count=total_ingested)
@@ -1028,6 +1164,9 @@ def main() -> int:
         windows_event_start_position=windows_event_start_position,
         heartbeat_enabled=not args.telemetry_only,
         telemetry_enabled=not args.heartbeat_loop,
+        request_timeout=request_timeout,
+        max_network_retries=max_network_retries,
+        network_backoff=network_backoff,
     )
     return 0
 
@@ -1044,6 +1183,9 @@ def send_sample_batches(
     deduplicate_events: bool = True,
     fingerprint_history_limit: int = DEFAULT_FINGERPRINT_HISTORY_LIMIT,
     debug: bool = False,
+    request_timeout: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    max_network_retries: int = DEFAULT_MAX_NETWORK_RETRIES,
+    network_backoff: int = DEFAULT_NETWORK_BACKOFF_SECONDS,
 ) -> int:
     """Send sample event batches and return total successfully ingested events."""
     total_ingested = 0
@@ -1076,7 +1218,15 @@ def send_sample_batches(
             batch_fingerprints = [fingerprints[event_offset + idx] for idx in range(len(batch_events))]
             event_offset += len(batch_events)
         try:
-            ingestion = send_windows_events(backend_url, api_key, batch, auto_detect=auto_detect)
+            ingestion = send_windows_events(
+                backend_url,
+                api_key,
+                batch,
+                auto_detect=auto_detect,
+                request_timeout=request_timeout,
+                max_network_retries=max_network_retries,
+                network_backoff=network_backoff,
+            )
             total_ingested += int(ingestion.get("ingested", 0) or 0)
             print_summary(f"Ingestion batch {index}", ingestion)
             if deduplicate_events:
@@ -1110,6 +1260,9 @@ def send_sample_batches_compact(
     deduplicate_events: bool = True,
     fingerprint_history_limit: int = DEFAULT_FINGERPRINT_HISTORY_LIMIT,
     debug: bool = False,
+    request_timeout: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    max_network_retries: int = DEFAULT_MAX_NETWORK_RETRIES,
+    network_backoff: int = DEFAULT_NETWORK_BACKOFF_SECONDS,
 ) -> int:
     """Send sample batches with concise service-loop logging."""
     total_ingested = 0
@@ -1140,7 +1293,15 @@ def send_sample_batches_compact(
             batch_fingerprints = [fingerprints[event_offset + idx] for idx in range(len(batch_events))]
             event_offset += len(batch_events)
         try:
-            ingestion = send_windows_events(backend_url, api_key, batch, auto_detect=auto_detect)
+            ingestion = send_windows_events(
+                backend_url,
+                api_key,
+                batch,
+                auto_detect=auto_detect,
+                request_timeout=request_timeout,
+                max_network_retries=max_network_retries,
+                network_backoff=network_backoff,
+            )
             total_ingested += int(ingestion.get("ingested", 0) or 0)
             detection = ingestion.get("detection_summary") or {}
             total_alerts += int(detection.get("alerts_created", 0) or 0)
@@ -1181,6 +1342,9 @@ def collect_and_send_windows_events(
     queue_path: str,
     fingerprint_history_limit: int,
     debug: bool = False,
+    request_timeout: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    max_network_retries: int = DEFAULT_MAX_NETWORK_RETRIES,
+    network_backoff: int = DEFAULT_NETWORK_BACKOFF_SECONDS,
 ) -> int:
     """Read Windows Event Logs once and optionally ingest normalized events."""
     state = load_state(state_path)
@@ -1223,7 +1387,15 @@ def collect_and_send_windows_events(
     sent_fingerprints: list[str] = []
     for index, batch in enumerate(iter_event_batches({"events": events}, batch_size), start=1):
         try:
-            ingestion = send_normalized_events(backend_url, api_key, batch, auto_detect=auto_detect)
+            ingestion = send_normalized_events(
+                backend_url,
+                api_key,
+                batch,
+                auto_detect=auto_detect,
+                request_timeout=request_timeout,
+                max_network_retries=max_network_retries,
+                network_backoff=network_backoff,
+            )
             total_ingested += int(ingestion.get("ingested", 0) or 0)
             batch_events = batch.get("events") if isinstance(batch.get("events"), list) else []
             sent_fingerprints.extend([str((event.get("raw_payload") or {}).get("record_id") or "") for event in batch_events])
@@ -1270,10 +1442,14 @@ def run_service_loop(
     windows_event_start_position: str,
     heartbeat_enabled: bool,
     telemetry_enabled: bool,
+    request_timeout: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    max_network_retries: int = DEFAULT_MAX_NETWORK_RETRIES,
+    network_backoff: int = DEFAULT_NETWORK_BACKOFF_SECONDS,
 ) -> None:
     """Run the long-lived agent service loop."""
     last_event_count = 0
     last_error = None
+    degraded = False
     sleep_seconds = max(5, interval)
     retry_seconds = max(1, retry_delay)
 
@@ -1281,7 +1457,16 @@ def run_service_loop(
         while True:
             try:
                 if queue_enabled:
-                    summary = flush_agent_queue(backend_url, api_key, queue_path, dead_letter_path, max_retry_attempts)
+                    summary = flush_agent_queue(
+                        backend_url,
+                        api_key,
+                        queue_path,
+                        dead_letter_path,
+                        max_retry_attempts,
+                        request_timeout,
+                        max_network_retries,
+                        network_backoff,
+                    )
                     if summary.get("pending_before", 0):
                         log_line(
                             "queue flush "
@@ -1291,8 +1476,17 @@ def run_service_loop(
                             f"dead_lettered={summary.get('dead_lettered', 0)}"
                         )
                 if heartbeat_enabled:
-                    send_heartbeat(backend_url, api_key, config, last_event_count=last_event_count, last_error=last_error)
-                    log_line("heartbeat sent")
+                    try:
+                        send_heartbeat(backend_url, api_key, config, last_event_count=last_event_count, last_error=last_error)
+                        if degraded:
+                            log_line("[recovered] backend connection restored")
+                        degraded = False
+                        log_line("heartbeat sent")
+                    except AgentNetworkError as exc:
+                        degraded = True
+                        last_error = str(exc)
+                        log_line(f"[warning] heartbeat timeout: {exc}")
+                        log_line("[degraded] backend temporarily unavailable")
 
                 if telemetry_enabled and agent_mode == "windows_event_log":
                     last_event_count = collect_and_send_windows_events(
@@ -1309,6 +1503,9 @@ def run_service_loop(
                         queue_path=queue_path,
                         fingerprint_history_limit=fingerprint_history_limit,
                         debug=debug,
+                        request_timeout=request_timeout,
+                        max_network_retries=max_network_retries,
+                        network_backoff=network_backoff,
                     )
                 elif telemetry_enabled:
                     last_event_count = send_sample_batches_compact(
@@ -1323,18 +1520,37 @@ def run_service_loop(
                         deduplicate_events=deduplicate_events,
                         fingerprint_history_limit=fingerprint_history_limit,
                         debug=debug,
+                        request_timeout=request_timeout,
+                        max_network_retries=max_network_retries,
+                        network_backoff=network_backoff,
                     )
 
                 if heartbeat_enabled and telemetry_enabled:
-                    send_heartbeat(backend_url, api_key, config, last_event_count=last_event_count)
-                    log_line("post-ingestion heartbeat sent")
+                    try:
+                        send_heartbeat(backend_url, api_key, config, last_event_count=last_event_count)
+                        if degraded:
+                            log_line("[recovered] backend connection restored")
+                        degraded = False
+                        log_line("post-ingestion heartbeat sent")
+                    except AgentNetworkError as exc:
+                        degraded = True
+                        last_error = str(exc)
+                        log_line(f"[warning] post-ingestion heartbeat timeout: {exc}")
+                        log_line("[degraded] backend temporarily unavailable")
 
-                last_error = None
+                if not degraded:
+                    last_error = None
                 log_line(f"sleeping {sleep_seconds}s")
                 time.sleep(sleep_seconds)
+            except AgentNetworkError as exc:
+                last_error = str(exc)
+                degraded = True
+                log_line(f"[degraded] backend temporarily unavailable: {exc}")
+                log_line(f"network error - retrying next cycle in {retry_seconds}s")
+                time.sleep(retry_seconds)
             except RuntimeError as exc:
                 last_error = str(exc)
-                log_line(f"network error - retrying next cycle in {retry_seconds}s")
+                log_line(f"runtime error - retrying next cycle in {retry_seconds}s: {exc}")
                 time.sleep(retry_seconds)
     except KeyboardInterrupt:
         write_log_file("agent_shutdown reason=KeyboardInterrupt")

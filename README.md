@@ -275,6 +275,24 @@ The agent sends a heartbeat to `POST /api/collectors/heartbeat`, then submits Wi
 
 Long-running service mode repeats heartbeat, telemetry ingestion, post-ingestion heartbeat, and sleep until `Ctrl+C`. Use `--heartbeat-loop` for heartbeats only or `--telemetry-only` for ingestion without heartbeat.
 
+Collector resilience settings can be supplied in config JSON or environment variables:
+
+```json
+{
+  "request_timeout_seconds": 30,
+  "max_network_retries": 3,
+  "network_backoff_seconds": 5
+}
+```
+
+```powershell
+$env:AGENT_REQUEST_TIMEOUT_SECONDS="30"
+$env:AGENT_MAX_RETRIES="3"
+$env:AGENT_BACKOFF_SECONDS="5"
+```
+
+Transient HTTPS, DNS, TLS, and read-timeout failures are logged as degraded collector state. Heartbeat failures do not stop the service loop, and telemetry ingestion failures are stored in the offline queue when enabled.
+
 Environment-specific runs load `config.local.json`, `config.staging.json`, or `config.production.json`:
 
 ```powershell
