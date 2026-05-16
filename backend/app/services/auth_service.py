@@ -104,7 +104,10 @@ def get_current_user(
 
 
 def require_role(*roles: str) -> Callable:
-    """Return dependency enforcing one of the provided roles, with admin override."""
+    """Return dependency enforcing one of the provided roles, with admin override.
+
+    Prefer app.security.permissions.require_permission for new route protection.
+    """
     allowed = set(roles)
 
     def dependency(user: models.User = Depends(get_current_user)) -> models.User:

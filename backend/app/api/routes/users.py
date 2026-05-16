@@ -18,6 +18,7 @@ from app.schemas.user import (
     UserRoleUpdate,
     UserUpdate,
 )
+from app.security.permissions import Permission, require_permission
 from app.services.activity_service import add_activity
 from app.services.auth_service import (
     APPROVAL_REQUIRED_ROLES,
@@ -27,7 +28,6 @@ from app.services.auth_service import (
     is_pending_admin_approval,
     is_super_admin,
     normalize_role,
-    require_role,
 )
 from app.services.websocket_manager import serialize_activity, websocket_manager
 
@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 @router.get("/", response_model=list[UserAdminRead], summary="List users")
 def list_users(
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_role("admin")),
+    _: models.User = Depends(require_permission(Permission.USER_READ)),
 ) -> list[UserAdminRead]:
     """Return all SOC users for admin review."""
     try:
@@ -59,7 +59,7 @@ def list_users(
 def get_user(
     user_id: int,
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_role("admin")),
+    _: models.User = Depends(require_permission(Permission.USER_READ)),
 ) -> UserDetailRead:
     """Return one user with recent login audit activity."""
     try:
@@ -79,7 +79,7 @@ async def update_user(
     user_id: int,
     payload: UserUpdate,
     db: Session = Depends(get_db),
-    actor: models.User = Depends(require_role("admin")),
+    actor: models.User = Depends(require_permission(Permission.USER_MANAGE)),
 ) -> UserAdminRead:
     """Update editable identity fields for a SOC user."""
     user = _get_user_or_404(db, user_id)
@@ -118,15 +118,12 @@ async def update_user(
 async def activate_user(
     user_id: int,
     db: Session = Depends(get_db),
-    actor: models.User = Depends(require_role("admin")),
+    actor: models.User = Depends(require_permission(Permission.USER_MANAGE)),
 ) -> UserAdminRead:
     """Reactivate a SOC user account."""
     user = _get_user_or_404(db, user_id)
-    if is_pending_admin_approval(user) and not is_super_admin(actor):
-        raise HTTPException(
-            status_code=403,
-            detail=f"Analyst/admin registration approval is restricted to PHOMOLO MATSOSO ({SUPER_ADMIN_EMAIL}).",
-        )
+    if is_pending_admin_approval(user):
+        _require_permission(actor, Permission.USER_APPROVE_PRIVILEGED)
     user.is_active = True
     user.disabled_reason = None
     user.updated_at = datetime.now(timezone.utc)
@@ -153,7 +150,7 @@ async def deactivate_user(
     user_id: int,
     payload: UserDeactivateRequest | None = None,
     db: Session = Depends(get_db),
-    actor: models.User = Depends(require_role("admin")),
+    actor: models.User = Depends(require_permission(Permission.USER_MANAGE)),
 ) -> UserAdminRead:
     """Deactivate a SOC user account without allowing self-lockout."""
     user = _get_user_or_404(db, user_id)
@@ -185,7 +182,7 @@ async def deactivate_user(
 async def disapprove_user(
     user_id: int,
     db: Session = Depends(get_db),
-    actor: models.User = Depends(require_role("admin")),
+    actor: models.User = Depends(require_permission(Permission.USER_APPROVE_PRIVILEGED)),
 ) -> UserAdminRead:
     """Disapprove a pending analyst/admin registration request."""
     _require_super_admin(actor)
@@ -220,7 +217,7 @@ async def disapprove_user(
 async def delete_user(
     user_id: int,
     db: Session = Depends(get_db),
-    actor: models.User = Depends(require_role("admin")),
+    actor: models.User = Depends(require_permission(Permission.USER_DELETE)),
 ) -> dict:
     """Permanently delete a SOC user. Restricted to the designated super admin."""
     _require_super_admin(actor)
@@ -256,16 +253,13 @@ async def change_user_role(
     user_id: int,
     payload: UserRoleUpdate,
     db: Session = Depends(get_db),
-    actor: models.User = Depends(require_role("admin")),
+    actor: models.User = Depends(require_permission(Permission.USER_MANAGE)),
 ) -> UserAdminRead:
     """Change a SOC user's role."""
     user = _get_user_or_404(db, user_id)
     next_role = normalize_role(payload.role)
     if next_role in APPROVAL_REQUIRED_ROLES and not is_super_admin(actor):
-        raise HTTPException(
-            status_code=403,
-            detail=f"Only PHOMOLO MATSOSO ({SUPER_ADMIN_EMAIL}) can approve or grant analyst/admin access.",
-        )
+        _require_permission(actor, Permission.USER_GRANT_PRIVILEGED_ROLE)
     previous_role = user.role
     user.role = next_role
     if next_role in APPROVAL_REQUIRED_ROLES and is_super_admin(actor):
@@ -302,8 +296,15 @@ def _require_super_admin(actor: models.User) -> None:
     if not is_super_admin(actor):
         raise HTTPException(
             status_code=403,
-            detail=f"Only PHOMOLO MATSOSO ({SUPER_ADMIN_EMAIL}) can perform this action.",
+            detail=f"Insufficient permission: super_admin required. Only PHOMOLO MATSOSO ({SUPER_ADMIN_EMAIL}) can perform this action.",
         )
+
+
+def _require_permission(actor: models.User, permission: Permission) -> None:
+    from app.security.permissions import has_permission
+
+    if not has_permission(actor, permission):
+        raise HTTPException(status_code=403, detail=f"Insufficient permission: {permission.value} required")
 
 
 def _query_users(db: Session) -> list[models.User]:

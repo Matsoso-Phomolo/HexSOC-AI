@@ -47,6 +47,7 @@ Telemetry Sources
 
 - SOC command dashboard for assets, events, alerts, incidents, cases, and activity timeline
 - RBAC authentication with admin, analyst, viewer, and super-admin governance controls
+- Permission-matrix enforcement for viewer, analyst, admin, and super-admin actions
 - Telemetry ingestion through API-key authenticated collectors
 - Windows/Sysmon-oriented collector prototype with heartbeat, offline queue, retry, and deduplication
 - Collector fleet monitoring with health summaries, stale/offline detection, version visibility, and local-control guidance
@@ -215,6 +216,7 @@ The cloud dashboard intentionally does not start or stop local endpoint agents. 
 - Collector API keys are shown once and stored hashed.
 - Public repository content excludes production secrets.
 - Rotate any key that may have been exposed.
+- Elevated analyst/admin registration, privileged role grants, and user deletion are governed by super-admin controls.
 
 ## Public vs Internal Documentation
 

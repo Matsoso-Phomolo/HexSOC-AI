@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.db import models
+from app.security.permissions import Permission, require_permission
 from app.schemas.threat_ioc import (
     FeedNormalizeRequest,
     IOCCorrelateRequest,
@@ -23,7 +24,6 @@ from app.schemas.threat_ioc import (
     ThreatIOCIngestResponse,
     ThreatIOCRead,
 )
-from app.services.auth_service import require_role
 from app.services.ioc_correlation_engine import correlate_indicators
 from app.services.ioc_graph_enrichment import enrich_entity_with_iocs, relationship_summary
 from app.services.threat_intel_feed_service import correlate_iocs, ingest_iocs, normalize_and_ingest_feed
@@ -39,7 +39,7 @@ def list_iocs(
     active_only: bool = Query(default=True),
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_role("viewer")),
+    _: models.User = Depends(require_permission(Permission.THREAT_INTEL_READ)),
 ) -> list[models.ThreatIOC]:
     """List normalized threat indicators with bounded pagination."""
     query = db.query(models.ThreatIOC).order_by(models.ThreatIOC.risk_score.desc(), models.ThreatIOC.id.desc())
@@ -57,7 +57,7 @@ def search_iocs(
     q: str = Query(min_length=1, max_length=200),
     limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_role("viewer")),
+    _: models.User = Depends(require_permission(Permission.THREAT_INTEL_READ)),
 ) -> dict[str, Any]:
     """Search IOC values, normalized values, sources, and tags with a bounded result set."""
     query_text = q.strip().lower()
@@ -84,7 +84,7 @@ def search_iocs(
 async def create_ioc(
     payload: ThreatIOCCreate,
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role("analyst")),
+    user: models.User = Depends(require_permission(Permission.THREAT_INTEL_RUN)),
 ) -> dict[str, Any]:
     """Create or update a single normalized IOC."""
     result = ingest_iocs(db, [payload], actor_username=user.username, actor_role=user.role)
@@ -96,7 +96,7 @@ async def create_ioc(
 async def bulk_create_iocs(
     payload: ThreatIOCBulkCreate,
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role("analyst")),
+    user: models.User = Depends(require_permission(Permission.THREAT_INTEL_RUN)),
 ) -> dict[str, Any]:
     """Create or update a batch of normalized IOCs."""
     indicators = [indicator.model_copy(update={"source": indicator.source or payload.source}) for indicator in payload.indicators]
@@ -109,7 +109,7 @@ async def bulk_create_iocs(
 async def normalize_feed(
     payload: FeedNormalizeRequest,
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role("analyst")),
+    user: models.User = Depends(require_permission(Permission.THREAT_INTEL_RUN)),
 ) -> dict[str, Any]:
     """Normalize a provider feed payload through the adapter layer and ingest IOCs."""
     result = normalize_and_ingest_feed(
@@ -132,7 +132,7 @@ async def normalize_feed(
 async def correlate_threat_iocs(
     payload: IOCCorrelateRequest | None = Body(default=None),
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_role("analyst")),
+    _: models.User = Depends(require_permission(Permission.THREAT_INTEL_RUN)),
 ) -> dict[str, Any]:
     """Create IOC relationships or correlate supplied raw indicators against stored IOCs."""
     if payload and payload.indicators:
@@ -150,7 +150,7 @@ async def correlate_threat_iocs(
 async def graph_enrich(
     payload: IOCGraphEnrichmentRequest,
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_role("analyst")),
+    _: models.User = Depends(require_permission(Permission.THREAT_INTEL_RUN)),
 ) -> dict[str, Any]:
     """Convert IOC matches for one entity into graph-native nodes and weighted edges."""
     try:
@@ -175,7 +175,7 @@ async def graph_enrich(
 def ioc_relationship_summary(
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_role("viewer")),
+    _: models.User = Depends(require_permission(Permission.THREAT_INTEL_READ)),
 ) -> dict[str, Any]:
     """Return bounded IOC-to-entity relationship counts and recent links."""
     return relationship_summary(db, limit=limit)
@@ -184,7 +184,7 @@ def ioc_relationship_summary(
 @router.get("/sync-status", response_model=ThreatIntelSyncStatus, summary="Threat intel sync status")
 def sync_status(
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_role("viewer")),
+    _: models.User = Depends(require_permission(Permission.THREAT_INTEL_READ)),
 ) -> dict[str, Any]:
     """Return operational counts for the local IOC intelligence lifecycle."""
     active_iocs = db.query(models.ThreatIOC).filter(models.ThreatIOC.is_active.is_(True)).count()

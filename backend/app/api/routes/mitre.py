@@ -5,8 +5,8 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.db import models
+from app.security.permissions import Permission, require_permission
 from app.services.activity_service import add_activity
-from app.services.auth_service import require_role
 from app.services.mitre_mapping_service import coverage_summary, map_unmapped_alerts, map_unmapped_events
 from app.services.websocket_manager import serialize_activity, websocket_manager
 
@@ -16,7 +16,7 @@ router = APIRouter()
 @router.post("/map-events", summary="Map existing events to MITRE")
 async def map_events(
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role("analyst")),
+    user: models.User = Depends(require_permission(Permission.MITRE_RUN)),
 ) -> dict[str, int]:
     """Backfill MITRE mappings for unmapped security events."""
     mapped = map_unmapped_events(db)
@@ -39,7 +39,7 @@ async def map_events(
 @router.post("/map-alerts", summary="Map existing alerts to MITRE")
 async def map_alerts(
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role("analyst")),
+    user: models.User = Depends(require_permission(Permission.MITRE_RUN)),
 ) -> dict[str, int]:
     """Backfill MITRE mappings for unmapped alerts."""
     mapped = map_unmapped_alerts(db)
@@ -62,7 +62,7 @@ async def map_alerts(
 @router.get("/coverage", summary="Get MITRE coverage")
 def get_coverage(
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_role("viewer")),
+    _: models.User = Depends(require_permission(Permission.MITRE_READ)),
 ) -> dict:
     """Return MITRE mapping coverage across events and alerts."""
     return coverage_summary(db)

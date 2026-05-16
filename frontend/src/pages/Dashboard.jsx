@@ -26,6 +26,7 @@ import {
   setStoredToken,
 } from "../api/client.js";
 import { useRealtimeAlerts } from "../hooks/useRealtimeAlerts.js";
+import { PERMISSIONS, can, effectiveRole } from "../utils/permissions.js";
 
 const sections = [
   { key: "assets", title: "Assets", empty: "No assets found." },
@@ -1956,6 +1957,7 @@ function AdminUserManagementPanel({
   state,
   error,
   currentUser,
+  isSuperAdmin,
   onSelectUser,
   onFormChange,
   onRoleChange,
@@ -1969,7 +1971,6 @@ function AdminUserManagementPanel({
 }) {
   const [roleView, setRoleView] = useState("menu");
   const selectedUser = userDetail ?? users.find((user) => String(user.id) === String(selectedUserId));
-  const isSuperAdmin = currentUser?.email?.toLowerCase() === "phomolomatsoso@gmail.com";
   const isPendingPrivileged =
     selectedUser &&
     ["admin", "analyst"].includes(selectedUser.role) &&
@@ -2106,7 +2107,7 @@ function AdminUserManagementPanel({
                 <button type="button" disabled={state === "saving"} onClick={onUpdateUser}>
                   Update Profile
                 </button>
-                <button type="button" disabled={state === "saving"} onClick={onChangeRole}>
+                <button type="button" disabled={state === "saving" || (!isSuperAdmin && ["admin", "analyst"].includes(adminRole))} onClick={onChangeRole}>
                   Change Role
                 </button>
                 {selectedUser.is_active ? (
@@ -2118,7 +2119,7 @@ function AdminUserManagementPanel({
                     Deactivate
                   </button>
                 ) : (
-                  <button type="button" disabled={state === "saving"} onClick={onActivate}>
+                  <button type="button" disabled={state === "saving" || (isPendingPrivileged && !isSuperAdmin)} onClick={onActivate}>
                     Activate
                   </button>
                 )}
@@ -2478,6 +2479,7 @@ function AttackChainIntelligencePanel({
   onSelectChain,
   onEscalateChain,
   canOperate,
+  canEscalate,
 }) {
   const chainList = chains?.chains ?? [];
   const campaignList = campaigns?.campaigns ?? [];
@@ -2577,7 +2579,7 @@ function AttackChainIntelligencePanel({
             <div className="record-title-row">
               <h3>Timeline Preview</h3>
               {selectedCanEscalate && (
-                <button type="button" disabled={!canOperate || escalationState === "saving"} onClick={() => onEscalateChain(selectedChainId)}>
+                <button type="button" disabled={!canEscalate || escalationState === "saving"} onClick={() => onEscalateChain(selectedChainId)}>
                   {escalationState === "saving" ? "Escalating..." : "Escalate to Incident"}
                 </button>
               )}
@@ -2921,8 +2923,16 @@ export default function Dashboard() {
   });
 
   const realtimeStatus = useRealtimeAlerts({ onMessage: handleRealtimeMessage });
-  const canOperate = currentUser?.role === "admin" || currentUser?.role === "analyst";
-  const isAdmin = currentUser?.role === "admin";
+  const currentEffectiveRole = effectiveRole(currentUser);
+  const canOperate = can(currentUser, PERMISSIONS.SOC_WRITE);
+  const canRunDetection = can(currentUser, PERMISSIONS.DETECTION_RUN);
+  const canRunThreatIntel = can(currentUser, PERMISSIONS.THREAT_INTEL_RUN);
+  const canRunCorrelation = can(currentUser, PERMISSIONS.CORRELATION_RUN);
+  const canRunMitre = can(currentUser, PERMISSIONS.MITRE_RUN);
+  const canManageCollectors = can(currentUser, PERMISSIONS.COLLECTOR_MANAGE);
+  const canCreateCollectors = can(currentUser, PERMISSIONS.COLLECTOR_CREATE);
+  const isAdmin = can(currentUser, PERMISSIONS.USER_READ);
+  const isSuperAdmin = currentEffectiveRole === "super_admin";
 
   useEffect(() => {
     async function loadSession() {
@@ -4162,7 +4172,7 @@ export default function Dashboard() {
         <div className="status-line">
           <span>Live backend: {import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:9000"}</span>
           <RealtimeBadge status={realtimeStatus} />
-          <span className="role-badge">{currentUser.full_name} | {currentUser.role}</span>
+          <span className="role-badge">{currentUser.full_name} | {currentEffectiveRole}</span>
           <button type="button" className="logout-button" onClick={handleLogout}>Logout</button>
         </div>
         {liveNotice && (
@@ -4206,7 +4216,7 @@ export default function Dashboard() {
           detectionResult={detectionResult}
           detectionError={detectionError}
           onRun={handleRunDetectionEngine}
-          canOperate={canOperate}
+          canOperate={canRunDetection}
         />
       )}
 
@@ -4246,7 +4256,7 @@ export default function Dashboard() {
           threatResult={threatResult}
           threatError={threatError}
           onRun={handleRunThreatIntel}
-          canOperate={canOperate}
+          canOperate={canRunThreatIntel}
         />
       )}
 
@@ -4272,7 +4282,7 @@ export default function Dashboard() {
           onCorrelate={handleIOCCorrelate}
           onGraphEnrich={handleIOCGraphEnrich}
           onRefresh={loadIOCIntelligence}
-          canOperate={canOperate}
+          canOperate={canRunThreatIntel}
         />
       )}
 
@@ -4283,7 +4293,7 @@ export default function Dashboard() {
           error={mitreError}
           onRun={handleRunMitreMapping}
           onRefresh={loadMitreCoverage}
-          canOperate={canOperate}
+          canOperate={canRunMitre}
         />
       )}
 
@@ -4293,7 +4303,7 @@ export default function Dashboard() {
           correlationResult={correlationResult}
           correlationError={correlationError}
           onRun={handleRunCorrelationEngine}
-          canOperate={canOperate}
+          canOperate={canRunCorrelation}
         />
       )}
 
@@ -4315,7 +4325,8 @@ export default function Dashboard() {
             setAttackChainEscalationResult(null);
           }}
           onEscalateChain={handleEscalateSelectedAttackChain}
-          canOperate={canOperate}
+          canOperate={can(currentUser, PERMISSIONS.ATTACK_CHAIN_REBUILD)}
+          canEscalate={can(currentUser, PERMISSIONS.INCIDENT_ESCALATE)}
         />
       )}
 
@@ -4398,7 +4409,7 @@ export default function Dashboard() {
           onOpenHtml={handleOpenCaseHtml}
           onGenerateCopilot={handleGenerateCaseCopilot}
           onCreateWorkspaceChecklist={handleCreateWorkspaceChecklist}
-          canOperate={canOperate}
+          canOperate={can(currentUser, PERMISSIONS.CASE_MANAGE)}
         />
       )}
 
@@ -4412,6 +4423,7 @@ export default function Dashboard() {
           state={adminState}
           error={adminError}
           currentUser={currentUser}
+          isSuperAdmin={isSuperAdmin}
           onSelectUser={(userId) => {
             setSelectedAdminUserId(userId);
             setAdminUserDetail(null);
@@ -4446,8 +4458,8 @@ export default function Dashboard() {
           onRefresh={loadCollectors}
           onCopyKey={handleCopyCollectorKey}
           onDismissKey={handleDismissCollectorKey}
-          canCreate={canOperate}
-          canAdmin={isAdmin}
+          canCreate={canCreateCollectors}
+          canAdmin={canManageCollectors}
         />
       )}
 

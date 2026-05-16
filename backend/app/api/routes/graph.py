@@ -8,6 +8,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.db import models
+from app.security.permissions import Permission, require_permission
 from app.services.graph_engine import build_investigation_graph
 from app.services.ioc_graph_enrichment import graph_ioc_relationships
 
@@ -26,6 +28,7 @@ def get_investigation_graph(
     aggregate: bool = Query(default=True),
     limit: int = Query(default=150, ge=1, le=500),
     db: Session = Depends(get_db),
+    _: models.User = Depends(require_permission(Permission.GRAPH_READ)),
 ) -> dict[str, Any]:
     """Return graph-ready SOC relationships for analyst investigation."""
     normalized_source_ip = source_ip.strip() if source_ip and source_ip.strip() else None
@@ -58,6 +61,7 @@ def get_investigation_graph(
 def get_ioc_relationship_graph(
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
+    _: models.User = Depends(require_permission(Permission.GRAPH_READ)),
 ) -> dict[str, Any]:
     """Return bounded IOC relationship nodes and edges for graph investigation."""
     try:

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.db import models
 from app.schemas.threat_ioc import AutoCorrelateRequest, AutoCorrelateResponse, ThreatProviderEnrichRequest
-from app.services.auth_service import require_role
+from app.security.permissions import Permission, require_permission
 from app.services.automated_correlation_engine import auto_correlate_entity, correlation_summary, risk_hotspots
 from app.services.threat_intel_service import enrich_security_context
 from app.services.websocket_manager import serialize_activity, websocket_manager
@@ -26,7 +26,7 @@ router = APIRouter()
 async def enrich_threat_intel(
     payload: ThreatProviderEnrichRequest | None = Body(default=None),
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role("analyst")),
+    user: models.User = Depends(require_permission(Permission.THREAT_INTEL_RUN)),
 ) -> dict[str, Any]:
     """Enrich supplied indicators or stored security events and alerts."""
     if payload and payload.indicators:
@@ -63,7 +63,7 @@ async def enrich_threat_intel(
 async def auto_correlate_threat_intel(
     payload: AutoCorrelateRequest,
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_role("analyst")),
+    _: models.User = Depends(require_permission(Permission.THREAT_INTEL_RUN)),
 ) -> dict[str, Any]:
     """Extract IOCs from one entity payload and correlate against local threat intelligence."""
     result = auto_correlate_entity(
@@ -84,7 +84,7 @@ async def auto_correlate_threat_intel(
 def get_correlation_summary(
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_role("viewer")),
+    _: models.User = Depends(require_permission(Permission.THREAT_INTEL_READ)),
 ) -> dict[str, Any]:
     """Return bounded correlation summary for local IOC relationships."""
     return correlation_summary(db, limit=limit)
@@ -94,13 +94,13 @@ def get_correlation_summary(
 def get_risk_hotspots(
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_role("viewer")),
+    _: models.User = Depends(require_permission(Permission.THREAT_INTEL_READ)),
 ) -> list[dict[str, Any]]:
     """Return highest-risk IOC/entity relationships."""
     return risk_hotspots(db, limit=limit)
 
 
 @router.get("/providers/status", summary="Threat intelligence provider status")
-def threat_provider_status(_: models.User = Depends(require_role("viewer"))) -> list[dict[str, Any]]:
+def threat_provider_status(_: models.User = Depends(require_permission(Permission.THREAT_INTEL_READ))) -> list[dict[str, Any]]:
     """Return provider readiness without exposing secrets."""
     return provider_status() if provider_status else []

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.db import models
+from app.security.permissions import Permission, require_permission
 from app.schemas.collector import (
     CollectorCreate,
     CollectorCreatedResponse,
@@ -22,7 +23,6 @@ from app.schemas.collector import (
 )
 from app.schemas.ingestion import BulkIngestRequest, BulkIngestResponse, IngestLogItem
 from app.services.activity_service import add_activity
-from app.services.auth_service import require_role
 from app.services.collector_service import (
     calculate_health_status,
     create_collector,
@@ -185,7 +185,7 @@ async def collector_ingest_windows_events_bulk(
 def list_collectors(
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_role("analyst")),
+    _: models.User = Depends(require_permission(Permission.COLLECTOR_READ)),
 ) -> list[models.Collector]:
     collectors = db.query(models.Collector).order_by(models.Collector.id.desc()).limit(limit).all()
     _refresh_health_batch(db, collectors)
@@ -196,7 +196,7 @@ def list_collectors(
 def collector_health(
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_role("admin", "analyst", "viewer")),
+    _: models.User = Depends(require_permission(Permission.COLLECTOR_READ)),
 ) -> CollectorHealthSummary:
     collectors = db.query(models.Collector).order_by(models.Collector.id.desc()).limit(limit).all()
     _refresh_health_batch(db, collectors)
@@ -220,7 +220,7 @@ def collector_health(
 def collector_fleet_summary(
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_role("admin", "analyst", "viewer")),
+    _: models.User = Depends(require_permission(Permission.COLLECTOR_READ)),
 ) -> dict:
     return summarize_fleet(db, limit=limit)
 
@@ -229,7 +229,7 @@ def collector_fleet_summary(
 def collector_fleet_health(
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_role("admin", "analyst", "viewer")),
+    _: models.User = Depends(require_permission(Permission.COLLECTOR_READ)),
 ) -> dict:
     return summarize_fleet(db, limit=limit)
 
@@ -238,7 +238,7 @@ def collector_fleet_health(
 def collector_fleet_offline(
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_role("admin", "analyst", "viewer")),
+    _: models.User = Depends(require_permission(Permission.COLLECTOR_READ)),
 ) -> list[models.Collector]:
     return offline_collectors(db, limit=limit)
 
@@ -247,7 +247,7 @@ def collector_fleet_offline(
 def collector_fleet_version_drift(
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_role("admin", "analyst", "viewer")),
+    _: models.User = Depends(require_permission(Permission.COLLECTOR_READ)),
 ) -> list[models.Collector]:
     return version_drift_collectors(db, limit=limit)
 
@@ -256,7 +256,7 @@ def collector_fleet_version_drift(
 def collector_fleet_detail(
     collector_id: int,
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_role("admin", "analyst", "viewer")),
+    _: models.User = Depends(require_permission(Permission.COLLECTOR_READ)),
 ) -> dict:
     detail = collector_detail(db, collector_id)
     if detail is None:
@@ -268,7 +268,7 @@ def collector_fleet_detail(
 async def create_live_collector(
     payload: CollectorCreate,
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role("analyst")),
+    user: models.User = Depends(require_permission(Permission.COLLECTOR_CREATE)),
 ) -> CollectorCreatedResponse:
     collector, api_key = create_collector(db, payload, created_by=user.username)
     activity = add_activity(
@@ -294,7 +294,7 @@ async def update_collector(
     collector_id: int,
     payload: CollectorUpdate,
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role("analyst")),
+    user: models.User = Depends(require_permission(Permission.COLLECTOR_MANAGE)),
 ) -> models.Collector:
     collector = _get_collector_or_404(db, collector_id)
     if payload.name is not None:
@@ -329,7 +329,7 @@ async def update_collector(
 async def rotate_live_collector(
     collector_id: int,
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role("admin")),
+    user: models.User = Depends(require_permission(Permission.COLLECTOR_MANAGE)),
 ) -> CollectorRotateResponse:
     collector = _get_collector_or_404(db, collector_id)
     collector, api_key = rotate_collector_key(db, collector)
@@ -355,7 +355,7 @@ async def rotate_live_collector(
 async def revoke_live_collector(
     collector_id: int,
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role("admin")),
+    user: models.User = Depends(require_permission(Permission.COLLECTOR_MANAGE)),
 ) -> models.Collector:
     collector = revoke_collector(db, _get_collector_or_404(db, collector_id))
     activity = add_activity(

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.db import models
-from app.services.auth_service import require_role
+from app.security.permissions import Permission, require_permission
 from app.services.detection_engine import RULES, run_detection_rules
 from app.services.websocket_manager import websocket_manager
 
@@ -19,7 +19,7 @@ def list_detections() -> dict[str, list]:
 @router.post("/run", summary="Run detection engine")
 async def run_detections(
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role("analyst")),
+    user: models.User = Depends(require_permission(Permission.DETECTION_RUN)),
 ) -> dict[str, int]:
     """Scan recent security events and create alerts for rule matches."""
     result = run_detection_rules(db)

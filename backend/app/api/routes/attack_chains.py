@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.db import models
 from app.db.database import ensure_attack_chain_schema
+from app.security.permissions import Permission, require_permission
 from app.services.activity_service import add_activity
 from app.services.attack_chain_engine import build_attack_chains
 from app.services.attack_chain_persistence_service import (
@@ -18,7 +19,6 @@ from app.services.attack_chain_persistence_service import (
     serialize_attack_chain_step,
     serialize_campaign,
 )
-from app.services.auth_service import require_role
 from app.services.investigation_session_service import create_from_attack_chain, serialize_session, update_session
 from app.services.websocket_manager import serialize_activity, websocket_manager
 
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 async def rebuild_attack_chain_intelligence(
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role("analyst")),
+    user: models.User = Depends(require_permission(Permission.ATTACK_CHAIN_REBUILD)),
 ) -> dict[str, Any]:
     """Compute bounded candidates and persist them as stable investigation objects."""
     try:
@@ -133,7 +133,7 @@ async def rebuild_attack_chain_intelligence(
 def list_attack_chains(
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_role("viewer", "analyst")),
+    _: models.User = Depends(require_permission(Permission.ATTACK_CHAIN_READ)),
 ) -> dict[str, Any]:
     """Return stable persisted attack chains sorted by risk and recency."""
     try:
@@ -176,7 +176,7 @@ def list_attack_chains(
 def retrieve_attack_chain(
     chain_id: str,
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_role("viewer", "analyst")),
+    _: models.User = Depends(require_permission(Permission.ATTACK_CHAIN_READ)),
 ) -> dict[str, Any]:
     """Return one stable attack chain by database ID or fingerprint."""
     try:
@@ -195,7 +195,7 @@ def retrieve_attack_chain_timeline(
     chain_id: str,
     limit: int = Query(100, ge=1, le=200),
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_role("viewer", "analyst")),
+    _: models.User = Depends(require_permission(Permission.ATTACK_CHAIN_READ)),
 ) -> dict[str, Any]:
     """Return persisted ordered timeline steps for a stable chain."""
     try:
@@ -232,7 +232,7 @@ async def update_attack_chain_status(
     chain_id: str,
     payload: dict[str, str] = Body(...),
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role("analyst")),
+    user: models.User = Depends(require_permission(Permission.ATTACK_CHAIN_UPDATE)),
 ) -> dict[str, Any]:
     """Update analyst workflow status for one persistent attack chain."""
     chain = _load_chain(db, chain_id)
@@ -264,7 +264,7 @@ async def update_attack_chain_status(
 def list_campaigns(
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_role("viewer", "analyst")),
+    _: models.User = Depends(require_permission(Permission.ATTACK_CHAIN_READ)),
 ) -> dict[str, Any]:
     """Return stable lightweight campaign summaries."""
     try:
@@ -307,7 +307,7 @@ async def create_investigation_from_chain(
     chain_id: str,
     payload: dict[str, Any] | None = Body(default=None),
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role("analyst")),
+    user: models.User = Depends(require_permission(Permission.INVESTIGATION_MANAGE)),
 ) -> dict[str, Any]:
     """Open an investigation session for a persistent attack chain."""
     chain = _load_chain(db, chain_id)
@@ -339,7 +339,7 @@ async def create_investigation_from_chain(
 def list_investigations(
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_role("viewer", "analyst")),
+    _: models.User = Depends(require_permission(Permission.INVESTIGATION_READ)),
 ) -> dict[str, Any]:
     """Return bounded investigation session summaries."""
     sessions = (
@@ -356,7 +356,7 @@ async def update_investigation(
     session_id: int,
     payload: dict[str, Any] = Body(...),
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role("analyst")),
+    user: models.User = Depends(require_permission(Permission.INVESTIGATION_MANAGE)),
 ) -> dict[str, Any]:
     """Update notes, status, priority, or assignment on an investigation session."""
     session = db.query(models.InvestigationSession).filter(models.InvestigationSession.id == session_id).first()

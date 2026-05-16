@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.db import models
 from app.schemas.incident import IncidentCreate, IncidentRead, IncidentStatusUpdate
+from app.security.permissions import Permission, require_permission
 from app.services.activity_service import add_activity
 from app.services.attack_chain_persistence_service import serialize_attack_chain, serialize_campaign
-from app.services.auth_service import require_role
 from app.services.incident_escalation_engine import escalate_attack_chain, escalate_campaign, escalate_context
 from app.services.incident_workspace_service import build_incident_workspace
 from app.services.investigation_recommendation_engine import (
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 async def create_incident(
     payload: IncidentCreate,
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role("analyst")),
+    user: models.User = Depends(require_permission(Permission.INCIDENT_UPDATE)),
 ) -> models.Incident:
     """Store an incident case for security response."""
     incident = models.Incident(**payload.dict())
@@ -63,7 +63,7 @@ async def update_incident_status(
     incident_id: int,
     payload: IncidentStatusUpdate,
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role("analyst")),
+    user: models.User = Depends(require_permission(Permission.INCIDENT_UPDATE)),
 ) -> models.Incident:
     """Update the lifecycle status for an incident."""
     incident = db.get(models.Incident, incident_id)
@@ -102,7 +102,7 @@ async def update_incident_status(
 def get_incident_workspace(
     incident_id: int,
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role("viewer", "analyst")),
+    user: models.User = Depends(require_permission(Permission.INVESTIGATION_READ)),
 ) -> dict:
     """Return bounded linked investigation context for an incident."""
     incident = db.get(models.Incident, incident_id)
@@ -115,7 +115,7 @@ def get_incident_workspace(
 async def create_workspace_evidence_checklist(
     incident_id: int,
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role("analyst")),
+    user: models.User = Depends(require_permission(Permission.CASE_MANAGE)),
 ) -> dict:
     """Create case evidence records from workspace recommendation checklist items."""
     incident = db.get(models.Incident, incident_id)
@@ -167,7 +167,7 @@ async def create_workspace_evidence_checklist(
 async def escalate_attack_chain_incident(
     chain_id: str,
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role("analyst")),
+    user: models.User = Depends(require_permission(Permission.INCIDENT_ESCALATE)),
 ) -> dict:
     """Create or update an incident from a critical attack chain."""
     logger.info("Attack-chain escalation requested", extra={"chain_id": chain_id, "actor": user.username})
@@ -203,7 +203,7 @@ async def escalate_attack_chain_incident(
 async def escalate_campaign_incident(
     campaign_id: str,
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role("analyst")),
+    user: models.User = Depends(require_permission(Permission.INCIDENT_ESCALATE)),
 ) -> dict:
     """Create or update an incident from a high-risk campaign cluster."""
     campaign = _load_campaign(db, campaign_id)
@@ -221,7 +221,7 @@ async def escalate_campaign_incident(
 async def escalate_context_incident(
     payload: dict,
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role("analyst")),
+    user: models.User = Depends(require_permission(Permission.INCIDENT_ESCALATE)),
 ) -> dict:
     """Create or update an incident from bounded caller-supplied context."""
     entity_type = str(payload.get("entity_type") or "context")
