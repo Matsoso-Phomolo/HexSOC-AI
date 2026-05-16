@@ -18,6 +18,9 @@ from app.db.database import get_db_session
 
 
 ALLOWED_ROLES = {"admin", "analyst", "viewer"}
+SUPER_ADMIN_EMAIL = "phomolomatsoso@gmail.com"
+SUPER_ADMIN_NAME = "PHOMOLO MATSOSO"
+PENDING_ADMIN_APPROVAL_REASON = f"Pending super admin approval by {SUPER_ADMIN_NAME} <{SUPER_ADMIN_EMAIL}>"
 
 
 def hash_password(password: str) -> str:
@@ -121,6 +124,21 @@ def get_user_by_login(db: Session, username_or_email: str) -> models.User | None
 def normalize_role(role: str) -> str:
     normalized = (role or "analyst").lower()
     return normalized if normalized in ALLOWED_ROLES else "analyst"
+
+
+def is_super_admin(user: models.User | None) -> bool:
+    """Return whether a user is the designated HexSOC AI super admin."""
+    return bool(user and user.role == "admin" and (user.email or "").strip().lower() == SUPER_ADMIN_EMAIL)
+
+
+def is_pending_admin_approval(user: models.User | None) -> bool:
+    """Return whether an admin account is waiting for super-admin approval."""
+    return bool(
+        user
+        and user.role == "admin"
+        and not user.is_active
+        and (user.disabled_reason or "") == PENDING_ADMIN_APPROVAL_REASON
+    )
 
 
 def _sign(value: str) -> str:

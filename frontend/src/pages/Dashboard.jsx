@@ -654,6 +654,11 @@ function AuthScreen({ authMode, authForm, authError, authState, onModeChange, on
               options={["analyst", "viewer", "admin"]}
             />
           )}
+          {authMode === "register" && authForm.role === "admin" && (
+            <p className="empty-state">
+              Admin access requires super admin approval by PHOMOLO MATSOSO before sign-in is enabled.
+            </p>
+          )}
           <PasswordField value={authForm.password} onChange={onFieldChange} />
           <div className="form-footer">
             <button type="submit" disabled={authState === "loading"}>
@@ -3881,7 +3886,14 @@ export default function Dashboard() {
       setAuthState("loading");
       setAuthError("");
       if (authMode === "register") {
-        await register(authForm);
+        const createdUser = await register(authForm);
+        if (!createdUser.is_active) {
+          setAuthMode("login");
+          setAuthError(createdUser.disabled_reason || "Account created and pending approval.");
+          setAuthState("idle");
+          setAuthForm((currentForm) => ({ ...currentForm, password: "" }));
+          return;
+        }
       }
       const response = await login({ username: authForm.username, password: authForm.password });
       setStoredToken(response.access_token);
