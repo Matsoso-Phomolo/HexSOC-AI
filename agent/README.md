@@ -354,6 +354,7 @@ Never commit real collector API keys. Rotate or revoke keys from the Live Collec
 ## Windows Background Service
 
 HexSOC Agent can run as a Windows startup task through Task Scheduler.
+The scheduled task uses `pythonw.exe` when available, allowing the collector to run silently in the background without opening a terminal window.
 
 Preferred current control scripts live in `agent\scripts`. They run the production agent through the `HexSOCAgent` scheduled task:
 

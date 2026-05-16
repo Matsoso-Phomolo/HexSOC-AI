@@ -16,6 +16,22 @@ function Write-Success($Message) { Write-Host "[SUCCESS] $Message" -ForegroundCo
 function Write-Warn($Message) { Write-Host "[WARNING] $Message" -ForegroundColor Yellow }
 function Write-Fail($Message) { Write-Host "[FAILED] $Message" -ForegroundColor Red }
 
+function Resolve-WindowlessPython {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PythonPath
+    )
+
+    $PythonDirectory = Split-Path -Parent $PythonPath
+    $Pythonw = Join-Path $PythonDirectory "pythonw.exe"
+
+    if (Test-Path -LiteralPath $Pythonw) {
+        return $Pythonw
+    }
+
+    return $PythonPath
+}
+
 try {
     Write-Info "Installing $DisplayName scheduled task"
 
@@ -27,12 +43,13 @@ try {
     }
 
     $Python = Get-Command python -ErrorAction Stop
+    $PythonRuntime = Resolve-WindowlessPython -PythonPath $Python.Source
     New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
-    $Arguments = "-NoProfile -ExecutionPolicy Bypass -Command `"Set-Location -LiteralPath '$ProjectRoot'; & '$($Python.Source)' agent\hexsoc_agent.py --env production --interval $IntervalSeconds --log-file agent\logs\hexsoc-agent.log`""
-    $Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $Arguments -WorkingDirectory $ProjectRoot
+    $Arguments = "agent\hexsoc_agent.py --env production --interval $IntervalSeconds --log-file agent\logs\hexsoc-agent.log"
+    $Action = New-ScheduledTaskAction -Execute $PythonRuntime -Argument $Arguments -WorkingDirectory $ProjectRoot
     $Trigger = New-ScheduledTaskTrigger -AtStartup
-    $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Days 0)
+    $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Days 0) -Hidden
     $Principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType S4U -RunLevel Highest
 
     try {
@@ -45,7 +62,12 @@ try {
     }
 
     Write-Success "$DisplayName installed as scheduled task '$ServiceName'"
+    Write-Info "Runtime: $PythonRuntime"
+    Write-Info "Command args: $Arguments"
     Write-Info "Log file: $LogFile"
+    if ((Split-Path -Leaf $PythonRuntime).ToLowerInvariant() -ne "pythonw.exe") {
+        Write-Warn "pythonw.exe was not found next to python.exe. The task was installed, but Windows may still show a console window."
+    }
     Write-Warn "API keys are read from config/environment and are never printed by this installer."
 }
 catch {

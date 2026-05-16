@@ -18,6 +18,22 @@ function Write-Success($Message) { Write-Host "[SUCCESS] $Message" -ForegroundCo
 function Write-Warn($Message) { Write-Host "[WARNING] $Message" -ForegroundColor Yellow }
 function Write-Fail($Message) { Write-Host "[FAILED] $Message" -ForegroundColor Red }
 
+function Resolve-WindowlessPython {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PythonPath
+    )
+
+    $PythonDirectory = Split-Path -Parent $PythonPath
+    $Pythonw = Join-Path $PythonDirectory "pythonw.exe"
+
+    if (Test-Path -LiteralPath $Pythonw) {
+        return $Pythonw
+    }
+
+    return $PythonPath
+}
+
 try {
     Write-Info "Installing $DisplayName scheduled task"
 
@@ -29,10 +45,11 @@ try {
     }
 
     $Python = Get-Command python -ErrorAction Stop
+    $PythonRuntime = Resolve-WindowlessPython -PythonPath $Python.Source
     New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
     $AgentArgs = "agent\hexsoc_agent.py --env production --interval $IntervalSeconds --log-file logs/agent-production.log"
-    $Action = New-ScheduledTaskAction -Execute $Python.Source -Argument $AgentArgs -WorkingDirectory $ProjectRoot
+    $Action = New-ScheduledTaskAction -Execute $PythonRuntime -Argument $AgentArgs -WorkingDirectory $ProjectRoot
     $Trigger = if ($TriggerType -eq "Startup") {
         New-ScheduledTaskTrigger -AtStartup
     }
@@ -45,16 +62,21 @@ try {
         -ExecutionTimeLimit (New-TimeSpan -Days 0) `
         -RestartCount 3 `
         -RestartInterval (New-TimeSpan -Minutes 1) `
-        -MultipleInstances IgnoreNew
+        -MultipleInstances IgnoreNew `
+        -Hidden
 
     $Principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
     Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Principal $Principal -Description $DisplayName -Force | Out-Null
 
     Write-Success "$DisplayName installed as scheduled task '$TaskName'"
     Write-Info "Trigger       : $TriggerType"
-    Write-Info "Command       : $($Python.Source) $AgentArgs"
+    Write-Info "Runtime       : $PythonRuntime"
+    Write-Info "Command args  : $AgentArgs"
     Write-Info "Working dir   : $ProjectRoot"
     Write-Info "Log file      : $LogFile"
+    if ((Split-Path -Leaf $PythonRuntime).ToLowerInvariant() -ne "pythonw.exe") {
+        Write-Warn "pythonw.exe was not found next to python.exe. The task was installed, but Windows may still show a console window."
+    }
     Write-Warn "No API keys were printed. Production config/environment supplies collector secrets."
 }
 catch {

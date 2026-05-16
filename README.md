@@ -306,6 +306,7 @@ Collector fleet health is available at `GET /api/collectors/health`. The Live Co
 ## Windows Persistent Agent Mode
 
 HexSOC Agent can run persistently through Windows Task Scheduler without NSSM or a packaged service binary.
+The scheduled task launches with `pythonw.exe` when available so the collector runs silently without opening a visible console window. Runtime output continues to go to the configured log file.
 
 Install the scheduled task:
 
@@ -341,6 +342,8 @@ The task runs:
 ```powershell
 python agent\hexsoc_agent.py --env production --interval 60 --log-file logs/agent-production.log
 ```
+
+The installer resolves this through a windowless Python runtime on Windows where possible. If `pythonw.exe` is unavailable, the installer warns and falls back to the regular `python.exe`.
 
 Check local collector state and queue health:
 

@@ -10,7 +10,7 @@ The scheduled task runs from the project root:
 python agent\hexsoc_agent.py --env production --interval 60 --log-file logs/agent-production.log
 ```
 
-The task reads production configuration from `agent/config.production.json` or environment variables. API keys are never printed by the scheduler scripts.
+The installer resolves `pythonw.exe` beside the active Python runtime when available. This keeps the collector silent and backgrounded while preserving the same agent arguments and log behavior. If `pythonw.exe` is unavailable, the installer falls back to `python.exe` and prints a warning. The task reads production configuration from `agent/config.production.json` or environment variables. API keys are never printed by the scheduler scripts.
 
 ## Task Scheduler Strategy
 
@@ -18,6 +18,7 @@ The task reads production configuration from `agent/config.production.json` or e
 - Optional trigger: system startup.
 - Restart on failure: enabled with a bounded retry count.
 - Multiple instances: ignored to prevent duplicate collectors.
+- Hidden task setting: enabled.
 - Working directory: repository root.
 - Log file: `logs/agent-production.log`.
 
