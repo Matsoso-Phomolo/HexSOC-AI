@@ -20,7 +20,9 @@ from app.schemas.user import (
 )
 from app.services.activity_service import add_activity
 from app.services.auth_service import (
+    APPROVAL_REQUIRED_ROLES,
     PENDING_ADMIN_APPROVAL_REASON,
+    PENDING_PRIVILEGED_APPROVAL_REASON,
     SUPER_ADMIN_EMAIL,
     is_pending_admin_approval,
     is_super_admin,
@@ -123,7 +125,7 @@ async def activate_user(
     if is_pending_admin_approval(user) and not is_super_admin(actor):
         raise HTTPException(
             status_code=403,
-            detail=f"Admin registration approval is restricted to PHOMOLO MATSOSO ({SUPER_ADMIN_EMAIL}).",
+            detail=f"Analyst/admin registration approval is restricted to PHOMOLO MATSOSO ({SUPER_ADMIN_EMAIL}).",
         )
     user.is_active = True
     user.disabled_reason = None
@@ -189,16 +191,16 @@ async def change_user_role(
     """Change a SOC user's role."""
     user = _get_user_or_404(db, user_id)
     next_role = normalize_role(payload.role)
-    if next_role == "admin" and not is_super_admin(actor):
+    if next_role in APPROVAL_REQUIRED_ROLES and not is_super_admin(actor):
         raise HTTPException(
             status_code=403,
-            detail=f"Only PHOMOLO MATSOSO ({SUPER_ADMIN_EMAIL}) can approve or grant admin access.",
+            detail=f"Only PHOMOLO MATSOSO ({SUPER_ADMIN_EMAIL}) can approve or grant analyst/admin access.",
         )
     previous_role = user.role
     user.role = next_role
-    if next_role == "admin" and is_super_admin(actor):
+    if next_role in APPROVAL_REQUIRED_ROLES and is_super_admin(actor):
         user.is_active = True
-        if user.disabled_reason == PENDING_ADMIN_APPROVAL_REASON:
+        if user.disabled_reason in {PENDING_ADMIN_APPROVAL_REASON, PENDING_PRIVILEGED_APPROVAL_REASON}:
             user.disabled_reason = None
     user.updated_at = datetime.now(timezone.utc)
     activity = add_activity(

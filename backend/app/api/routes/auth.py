@@ -13,7 +13,8 @@ from app.db import models
 from app.db.database import sync_phase2_schema
 from app.schemas.auth import CurrentUser, LoginRequest, TokenResponse, UserCreate, UserRead
 from app.services.auth_service import (
-    PENDING_ADMIN_APPROVAL_REASON,
+    APPROVAL_REQUIRED_ROLES,
+    PENDING_PRIVILEGED_APPROVAL_REASON,
     create_access_token,
     get_current_user,
     get_user_by_login,
@@ -51,15 +52,15 @@ def register_user(payload: UserCreate, db: Session = Depends(get_db)) -> models.
         raise HTTPException(status_code=409, detail="Email or username already exists")
 
     requested_role = normalize_role(payload.role)
-    is_pending_admin = requested_role == "admin"
+    requires_approval = requested_role in APPROVAL_REQUIRED_ROLES
     user = models.User(
         full_name=payload.full_name,
         email=email,
         username=username,
         hashed_password=hash_password(payload.password),
         role=requested_role,
-        is_active=not is_pending_admin,
-        disabled_reason=PENDING_ADMIN_APPROVAL_REASON if is_pending_admin else None,
+        is_active=not requires_approval,
+        disabled_reason=PENDING_PRIVILEGED_APPROVAL_REASON if requires_approval else None,
     )
 
     try:

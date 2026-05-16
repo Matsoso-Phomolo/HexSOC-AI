@@ -654,9 +654,9 @@ function AuthScreen({ authMode, authForm, authError, authState, onModeChange, on
               options={["analyst", "viewer", "admin"]}
             />
           )}
-          {authMode === "register" && authForm.role === "admin" && (
+          {authMode === "register" && ["admin", "analyst"].includes(authForm.role) && (
             <p className="empty-state">
-              Admin access requires super admin approval by PHOMOLO MATSOSO before sign-in is enabled.
+              Analyst and admin access require super admin approval by PHOMOLO MATSOSO before sign-in is enabled.
             </p>
           )}
           <PasswordField value={authForm.password} onChange={onFieldChange} />

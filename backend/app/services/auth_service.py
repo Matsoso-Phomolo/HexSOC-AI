@@ -20,7 +20,9 @@ from app.db.database import get_db_session
 ALLOWED_ROLES = {"admin", "analyst", "viewer"}
 SUPER_ADMIN_EMAIL = "phomolomatsoso@gmail.com"
 SUPER_ADMIN_NAME = "PHOMOLO MATSOSO"
+APPROVAL_REQUIRED_ROLES = {"admin", "analyst"}
 PENDING_ADMIN_APPROVAL_REASON = f"Pending super admin approval by {SUPER_ADMIN_NAME} <{SUPER_ADMIN_EMAIL}>"
+PENDING_PRIVILEGED_APPROVAL_REASON = f"Pending analyst/admin approval by {SUPER_ADMIN_NAME} <{SUPER_ADMIN_EMAIL}>"
 
 
 def hash_password(password: str) -> str:
@@ -132,12 +134,12 @@ def is_super_admin(user: models.User | None) -> bool:
 
 
 def is_pending_admin_approval(user: models.User | None) -> bool:
-    """Return whether an admin account is waiting for super-admin approval."""
+    """Return whether a privileged account is waiting for super-admin approval."""
     return bool(
         user
-        and user.role == "admin"
+        and user.role in APPROVAL_REQUIRED_ROLES
         and not user.is_active
-        and (user.disabled_reason or "") == PENDING_ADMIN_APPROVAL_REASON
+        and (user.disabled_reason or "") in {PENDING_ADMIN_APPROVAL_REASON, PENDING_PRIVILEGED_APPROVAL_REASON}
     )
 
 
