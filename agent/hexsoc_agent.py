@@ -86,6 +86,7 @@ LEGACY_ENV_OVERRIDES = {
 }
 SECRET_FIELDS = {"collector_api_key"}
 LOG_FILE_PATH: Path | None = None
+LOG_MAX_BYTES = 5 * 1024 * 1024
 
 
 class AgentNetworkError(RuntimeError):
@@ -110,8 +111,19 @@ def write_log_file(message: str) -> None:
     """Append a sanitized message to the configured log file."""
     if LOG_FILE_PATH is None:
         return
+    rotate_log_file(LOG_FILE_PATH)
     with LOG_FILE_PATH.open("a", encoding="utf-8") as file:
         file.write(f"{utc_runtime_label()} {message}\n")
+
+
+def rotate_log_file(path: Path, max_bytes: int = LOG_MAX_BYTES) -> None:
+    """Rotate the active agent log when it grows beyond the local max size."""
+    if not path.exists() or path.stat().st_size < max_bytes:
+        return
+    rotated = path.with_suffix(path.suffix + ".1")
+    if rotated.exists():
+        rotated.unlink()
+    path.replace(rotated)
 
 
 def load_json_file(path: Path) -> dict[str, Any]:

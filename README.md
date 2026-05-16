@@ -302,3 +302,42 @@ python hexsoc_agent.py --env production --interval 60
 ```
 
 Collector fleet health is available at `GET /api/collectors/health`. The Live Collectors panel displays online, stale, offline, and revoked counts, along with agent version, host name, OS details, heartbeat count, last heartbeat time, last event count, and last error.
+
+## Windows Persistent Agent Mode
+
+HexSOC Agent can run persistently through Windows Task Scheduler without NSSM or a packaged service binary.
+
+Install the scheduled task:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File agent\scripts\install_windows_task.ps1
+```
+
+Install with startup trigger instead of logon:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File agent\scripts\install_windows_task.ps1 -TriggerType Startup
+```
+
+Operate the task:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File agent\scripts\start_agent_task.ps1
+powershell -ExecutionPolicy Bypass -File agent\scripts\stop_agent_task.ps1
+powershell -ExecutionPolicy Bypass -File agent\scripts\uninstall_windows_task.ps1
+```
+
+The task runs:
+
+```powershell
+python agent\hexsoc_agent.py --env production --interval 60 --log-file logs/agent-production.log
+```
+
+Check local collector state and queue health:
+
+```powershell
+python agent\hexsoc_agent.py --env production --state-status
+python agent\hexsoc_agent.py --env production --queue-status
+```
+
+Runtime logs are written to `logs/agent-production.log`. The agent rotates this log at roughly 5 MB and keeps one `.1` rotated copy.
