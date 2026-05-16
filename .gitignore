@@ -17,6 +17,7 @@ build/
 .env
 .env.*
 !.env.example
+README.local.md
 agent/config.json
 agent/config.local.json
 agent/config.staging.json
