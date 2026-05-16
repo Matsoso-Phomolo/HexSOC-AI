@@ -2487,6 +2487,22 @@ function AttackChainIntelligencePanel({
   const selectedChain = chainList.find((chain) => chain.chain_id === selectedChainId);
   const selectedCanEscalate = selectedChain && (["critical", "high"].includes(selectedChain.classification) || (selectedChain.risk_score ?? 0) >= 75);
   const criticalHighCount = chainList.filter((chain) => ["critical", "high"].includes(chain.classification)).length;
+  const [selectedTimelineStepIndex, setSelectedTimelineStepIndex] = useState(0);
+  const timelineSteps = (timeline?.steps ?? []).slice(0, 25);
+  const safeTimelineStepIndex = timelineSteps.length > 0
+    ? Math.min(selectedTimelineStepIndex, timelineSteps.length - 1)
+    : 0;
+  const selectedTimelineStep = timelineSteps[safeTimelineStepIndex];
+
+  useEffect(() => {
+    setSelectedTimelineStepIndex(0);
+  }, [selectedChainId]);
+
+  useEffect(() => {
+    if (selectedTimelineStepIndex >= timelineSteps.length && timelineSteps.length > 0) {
+      setSelectedTimelineStepIndex(timelineSteps.length - 1);
+    }
+  }, [selectedTimelineStepIndex, timelineSteps.length]);
 
   return (
     <section className="attack-chain-panel">
@@ -2589,25 +2605,41 @@ function AttackChainIntelligencePanel({
             {selectedChainId && timelineState !== "loading" && (timeline?.steps ?? []).length === 0 && (
               <p className="empty-state">No timeline steps returned for this chain.</p>
             )}
-            {(timeline?.steps ?? []).length > 0 && (
-              <ol className="attack-timeline-list">
-                {timeline.steps.slice(0, 25).map((step) => (
-                  <li key={step.step_id}>
+            {timelineSteps.length > 0 && (
+              <div className="attack-timeline-compact">
+                <div className="timeline-step-controls" aria-label="Timeline preview steps">
+                  {timelineSteps.map((step, index) => (
+                    <button
+                      key={step.step_id ?? `${selectedChainId}-timeline-${index}`}
+                      type="button"
+                      className={index === safeTimelineStepIndex ? "active-step" : ""}
+                      aria-pressed={index === safeTimelineStepIndex}
+                      onClick={() => setSelectedTimelineStepIndex(index)}
+                    >
+                      {index + 1}
+                    </button>
+                  ))}
+                </div>
+                <span className="timeline-step-count">
+                  Showing step {safeTimelineStepIndex + 1} of {timelineSteps.length}
+                </span>
+                {selectedTimelineStep && (
+                  <article className="attack-timeline-single">
                     <div className="record-title-row">
-                      <strong>{step.event_type || step.title}</strong>
-                      <span className="severity">{step.severity}</span>
+                      <strong>{selectedTimelineStep.event_type || selectedTimelineStep.title}</strong>
+                      <span className="severity">{selectedTimelineStep.severity}</span>
                     </div>
-                    <p>{formatDateTime(step.timestamp)} | {step.attack_stage}</p>
+                    <p>{formatDateTime(selectedTimelineStep.timestamp)} | {selectedTimelineStep.attack_stage}</p>
                     <div className="activity-meta">
-                      {step.mitre_technique_id && <span>{step.mitre_technique_id}</span>}
-                      {step.mitre_tactic && <span>{step.mitre_tactic}</span>}
-                      {step.hostname && <span>{step.hostname}</span>}
-                      {step.username && <span>{step.username}</span>}
-                      {step.source_ip && <span>{step.source_ip}</span>}
+                      {selectedTimelineStep.mitre_technique_id && <span>{selectedTimelineStep.mitre_technique_id}</span>}
+                      {selectedTimelineStep.mitre_tactic && <span>{selectedTimelineStep.mitre_tactic}</span>}
+                      {selectedTimelineStep.hostname && <span>{selectedTimelineStep.hostname}</span>}
+                      {selectedTimelineStep.username && <span>{selectedTimelineStep.username}</span>}
+                      {selectedTimelineStep.source_ip && <span>{selectedTimelineStep.source_ip}</span>}
                     </div>
-                  </li>
-                ))}
-              </ol>
+                  </article>
+                )}
+              </div>
             )}
           </div>
         </div>
