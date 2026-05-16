@@ -181,6 +181,76 @@ async def deactivate_user(
     return _user_read(user)
 
 
+@router.post("/{user_id}/disapprove", response_model=UserAdminRead, summary="Disapprove pending privileged user")
+async def disapprove_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    actor: models.User = Depends(require_role("admin")),
+) -> UserAdminRead:
+    """Disapprove a pending analyst/admin registration request."""
+    _require_super_admin(actor)
+    user = _get_user_or_404(db, user_id)
+    if user.id == actor.id:
+        raise HTTPException(status_code=400, detail="Super admin cannot disapprove their own account")
+    if user.role not in APPROVAL_REQUIRED_ROLES or user.is_active:
+        raise HTTPException(status_code=400, detail="Only pending analyst/admin requests can be disapproved")
+
+    user.is_active = False
+    user.disabled_reason = f"Disapproved by PHOMOLO MATSOSO ({SUPER_ADMIN_EMAIL})"
+    user.updated_at = datetime.now(timezone.utc)
+    activity = add_activity(
+        db,
+        action="user_disapproved",
+        entity_type="user",
+        entity_id=user.id,
+        message=f"User {user.username} {user.role} request disapproved.",
+        severity="warning",
+        actor_username=actor.username,
+        actor_role=actor.role,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    db.refresh(activity)
+    await _broadcast_user_action("user_disapproved", user, activity)
+    return _user_read(user)
+
+
+@router.delete("/{user_id}", summary="Delete user")
+async def delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    actor: models.User = Depends(require_role("admin")),
+) -> dict:
+    """Permanently delete a SOC user. Restricted to the designated super admin."""
+    _require_super_admin(actor)
+    user = _get_user_or_404(db, user_id)
+    if user.id == actor.id:
+        raise HTTPException(status_code=400, detail="Super admin cannot delete their own account")
+
+    deleted_username = user.username
+    deleted_role = user.role
+    db.query(models.LoginAudit).filter(models.LoginAudit.user_id == user.id).delete(synchronize_session=False)
+    activity = add_activity(
+        db,
+        action="user_deleted",
+        entity_type="user",
+        entity_id=user.id,
+        message=f"User {deleted_username} ({deleted_role}) deleted by super admin.",
+        severity="critical",
+        actor_username=actor.username,
+        actor_role=actor.role,
+    )
+    db.delete(user)
+    db.commit()
+    db.refresh(activity)
+    await websocket_manager.broadcast_activity({"type": "activity_created", "activity": serialize_activity(activity)})
+    await websocket_manager.broadcast_activity(
+        {"type": "user_deleted", "user_id": user_id, "username": deleted_username, "role": deleted_role}
+    )
+    return {"deleted": True, "user_id": user_id, "username": deleted_username, "role": deleted_role}
+
+
 @router.post("/{user_id}/role", response_model=UserAdminRead, summary="Change user role")
 async def change_user_role(
     user_id: int,
@@ -226,6 +296,14 @@ def _get_user_or_404(db: Session, user_id: int) -> models.User:
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return user
+
+
+def _require_super_admin(actor: models.User) -> None:
+    if not is_super_admin(actor):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Only PHOMOLO MATSOSO ({SUPER_ADMIN_EMAIL}) can perform this action.",
+        )
 
 
 def _query_users(db: Session) -> list[models.User]:

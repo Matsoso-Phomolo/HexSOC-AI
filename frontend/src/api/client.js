@@ -80,6 +80,13 @@ export async function apiPost(path, payload) {
   });
 }
 
+export async function apiDelete(path) {
+  return request(path, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+}
+
 export async function login(payload) {
   return request("/api/auth/login", {
     method: "POST",

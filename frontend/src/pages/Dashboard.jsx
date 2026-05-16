@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   API_BASE_URL,
+  apiDelete,
   apiGet,
   apiPatch,
   apiPost,
@@ -1957,9 +1958,17 @@ function AdminUserManagementPanel({
   onChangeRole,
   onActivate,
   onDeactivate,
+  onDisapprove,
+  onDelete,
   onRefresh,
 }) {
   const selectedUser = userDetail ?? users.find((user) => String(user.id) === String(selectedUserId));
+  const isSuperAdmin = currentUser?.email?.toLowerCase() === "phomolomatsoso@gmail.com";
+  const isPendingPrivileged =
+    selectedUser &&
+    ["admin", "analyst"].includes(selectedUser.role) &&
+    !selectedUser.is_active &&
+    (selectedUser.disabled_reason || "").toLowerCase().includes("pending");
 
   return (
     <section className="admin-panel">
@@ -2068,6 +2077,16 @@ function AdminUserManagementPanel({
                 ) : (
                   <button type="button" disabled={state === "saving"} onClick={onActivate}>
                     Activate
+                  </button>
+                )}
+                {isSuperAdmin && isPendingPrivileged && (
+                  <button type="button" disabled={state === "saving" || selectedUser.id === currentUser.id} onClick={onDisapprove}>
+                    Disapprove Request
+                  </button>
+                )}
+                {isSuperAdmin && selectedUser.id !== currentUser.id && (
+                  <button type="button" disabled={state === "saving"} onClick={onDelete}>
+                    Delete User
                   </button>
                 )}
               </div>
@@ -2930,11 +2949,18 @@ export default function Dashboard() {
     if (!isAdmin) return;
     const users = await apiGet("/api/users/");
     setAdminUsers(users);
-    if (userId) {
-      const detail = await apiGet(`/api/users/${userId}`);
+    const nextUserId = userId && users.some((user) => String(user.id) === String(userId)) ? userId : users[0]?.id;
+    if (nextUserId) {
+      setSelectedAdminUserId(String(nextUserId));
+      const detail = await apiGet(`/api/users/${nextUserId}`);
       setAdminUserDetail(detail);
       setAdminForm({ full_name: detail.full_name ?? "", email: detail.email ?? "" });
       setAdminRole(detail.role ?? "analyst");
+    } else {
+      setSelectedAdminUserId("");
+      setAdminUserDetail(null);
+      setAdminForm({ full_name: "", email: "" });
+      setAdminRole("analyst");
     }
   }
 
@@ -3075,7 +3101,7 @@ export default function Dashboard() {
       });
     }
 
-    if (["user_updated", "user_role_changed", "user_deactivated", "user_activated"].includes(message.type)) {
+    if (["user_updated", "user_role_changed", "user_deactivated", "user_activated", "user_disapproved", "user_deleted"].includes(message.type)) {
       scheduleRealtimeRefresh({ adminUsers: true, slices: ["activity"] });
     }
 
@@ -3807,6 +3833,34 @@ export default function Dashboard() {
     }
   }
 
+  async function handleAdminDisapproveUser() {
+    if (!selectedAdminUserId) return;
+    try {
+      setAdminState("saving");
+      setAdminError("");
+      await apiPost(`/api/users/${selectedAdminUserId}/disapprove`, {});
+      await Promise.all([refreshAdminUsers(selectedAdminUserId), refreshSlices(["activity"])]);
+      setAdminState("ready");
+    } catch (requestError) {
+      setAdminError(requestError.message);
+      setAdminState("error");
+    }
+  }
+
+  async function handleAdminDeleteUser() {
+    if (!selectedAdminUserId) return;
+    try {
+      setAdminState("saving");
+      setAdminError("");
+      await apiDelete(`/api/users/${selectedAdminUserId}`);
+      await Promise.all([refreshAdminUsers(""), refreshSlices(["activity"])]);
+      setAdminState("ready");
+    } catch (requestError) {
+      setAdminError(requestError.message);
+      setAdminState("error");
+    }
+  }
+
   function handleCollectorFieldChange(name, value) {
     setCollectorForm((currentForm) => ({ ...currentForm, [name]: value }));
   }
@@ -4202,6 +4256,8 @@ export default function Dashboard() {
           onChangeRole={handleAdminChangeRole}
           onActivate={handleAdminActivateUser}
           onDeactivate={handleAdminDeactivateUser}
+          onDisapprove={handleAdminDisapproveUser}
+          onDelete={handleAdminDeleteUser}
           onRefresh={loadAdminUsers}
         />
       )}
