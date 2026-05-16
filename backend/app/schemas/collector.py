@@ -93,7 +93,43 @@ class CollectorHealthSummary(BaseModel):
 
     total_collectors: int
     online: int
+    degraded: int = 0
     stale: int
     offline: int
     revoked: int
     collectors: list[CollectorRead]
+
+
+class CollectorFleetGroup(BaseModel):
+    """Small count bucket used by fleet summary responses."""
+
+    key: str
+    count: int
+
+
+class CollectorFleetSummary(BaseModel):
+    """Bounded operational summary for the collector fleet."""
+
+    total_collectors: int
+    status_counts: dict[str, int]
+    type_distribution: list[CollectorFleetGroup]
+    source_distribution: list[CollectorFleetGroup]
+    os_distribution: list[CollectorFleetGroup]
+    version_distribution: list[CollectorFleetGroup]
+    stale_collectors: list[CollectorRead]
+    offline_collectors: list[CollectorRead]
+    version_drift: list[CollectorRead]
+    telemetry_volume_total: int
+    last_seen_age_seconds_max: int | None = None
+    heartbeat_age_seconds_max: int | None = None
+
+
+class CollectorFleetDetail(BaseModel):
+    """Detailed collector view with derived operational metadata."""
+
+    collector: CollectorRead
+    last_seen_age_seconds: int | None = None
+    heartbeat_age_seconds: int | None = None
+    telemetry_volume: int
+    version_drift: bool
+    local_control_note: str

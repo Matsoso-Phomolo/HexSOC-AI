@@ -353,3 +353,15 @@ python agent\hexsoc_agent.py --env production --queue-status
 ```
 
 Runtime logs are written to `logs/agent-production.log`. The agent rotates this log at roughly 5 MB and keeps one `.1` rotated copy.
+
+## Collector Fleet Management
+
+HexSOC AI exposes bounded collector fleet APIs for operational monitoring:
+
+- `GET /api/collectors/fleet/summary`
+- `GET /api/collectors/fleet/health`
+- `GET /api/collectors/fleet/{collector_id}`
+- `GET /api/collectors/fleet/offline`
+- `GET /api/collectors/fleet/version-drift`
+
+The Live Collectors panel shows fleet health, version distribution, stale/offline collectors, last errors, heartbeat age, and local Task Scheduler commands. The cloud dashboard intentionally does not start local endpoint agents; use the local shortcuts or scripts under `agent\scripts` for start/stop operations.

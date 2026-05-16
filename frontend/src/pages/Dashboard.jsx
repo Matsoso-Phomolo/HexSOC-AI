@@ -277,6 +277,11 @@ function formatRelativeAge(value) {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+function collectorDisplayStatus(collector) {
+  const status = collector?.health_status ?? "offline";
+  return status === "online" && collector?.last_error ? "degraded" : status;
+}
+
 function countryFlag(country) {
   if (!country) return "N/A";
 
@@ -2154,6 +2159,7 @@ function AdminUserManagementPanel({
 function CollectorManagementPanel({
   collectors,
   healthSummary,
+  fleetSummary,
   form,
   state,
   error,
@@ -2170,7 +2176,36 @@ function CollectorManagementPanel({
   canCreate,
   canAdmin,
 }) {
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [selectedCollectorId, setSelectedCollectorId] = useState("");
+  const [commandsCopied, setCommandsCopied] = useState(false);
   const hasUnhealthyCollectors = (healthSummary?.stale ?? 0) > 0 || (healthSummary?.offline ?? 0) > 0;
+  const localCommands = [
+    "powershell -ExecutionPolicy Bypass -File agent\\scripts\\install_windows_task.ps1",
+    "powershell -ExecutionPolicy Bypass -File agent\\scripts\\start_agent_task.ps1",
+    "powershell -ExecutionPolicy Bypass -File agent\\scripts\\status_agent_task.ps1",
+  ].join("\n");
+  const collectorTypes = useMemo(
+    () => Array.from(new Set(collectors.map((collector) => collector.collector_type).filter(Boolean))).sort(),
+    [collectors],
+  );
+  const filteredCollectors = useMemo(
+    () =>
+      collectors.filter((collector) => {
+        const matchesStatus = statusFilter === "all" || collectorDisplayStatus(collector) === statusFilter;
+        const matchesType = typeFilter === "all" || collector.collector_type === typeFilter;
+        return matchesStatus && matchesType;
+      }),
+    [collectors, statusFilter, typeFilter],
+  );
+  const selectedCollector =
+    filteredCollectors.find((collector) => String(collector.id) === String(selectedCollectorId)) ?? filteredCollectors[0];
+
+  async function handleCopyCommands() {
+    await navigator.clipboard.writeText(localCommands);
+    setCommandsCopied(true);
+  }
 
   return (
     <section className="collector-panel">
@@ -2186,6 +2221,7 @@ function CollectorManagementPanel({
 
       <div className="collector-health-summary">
         <div><span>Online</span><strong>{healthSummary?.online ?? 0}</strong></div>
+        <div><span>Degraded</span><strong>{healthSummary?.degraded ?? 0}</strong></div>
         <div><span>Stale</span><strong>{healthSummary?.stale ?? 0}</strong></div>
         <div><span>Offline</span><strong>{healthSummary?.offline ?? 0}</strong></div>
         <div><span>Revoked</span><strong>{healthSummary?.revoked ?? 0}</strong></div>
@@ -2194,6 +2230,35 @@ function CollectorManagementPanel({
       {hasUnhealthyCollectors && (
         <div className="collector-warning">Some collectors are not reporting telemetry.</div>
       )}
+
+      <div className="collector-local-control">
+        <div>
+          <strong>Local control only</strong>
+          <p>Cloud dashboard cannot start local agents directly. Use the endpoint shortcuts or Task Scheduler scripts for start/stop.</p>
+        </div>
+        <button type="button" onClick={handleCopyCommands}>
+          {commandsCopied ? "Commands copied" : "Copy local install commands"}
+        </button>
+      </div>
+
+      <div className="collector-fleet-insights">
+        <div>
+          <span>Telemetry volume</span>
+          <strong>{fleetSummary?.telemetry_volume_total ?? 0}</strong>
+        </div>
+        <div>
+          <span>Versions</span>
+          <strong>{(fleetSummary?.version_distribution ?? []).map((item) => `${item.key} (${item.count})`).join(", ") || "none"}</strong>
+        </div>
+        <div>
+          <span>Collector types</span>
+          <strong>{(fleetSummary?.type_distribution ?? []).map((item) => `${item.key} (${item.count})`).join(", ") || "none"}</strong>
+        </div>
+        <div>
+          <span>Version drift</span>
+          <strong>{fleetSummary?.version_drift?.length ?? 0}</strong>
+        </div>
+      </div>
 
       {oneTimeKey && (
         <div className="collector-key-box">
@@ -2234,52 +2299,107 @@ function CollectorManagementPanel({
       {collectors.length === 0 ? (
         <p className="empty-state">No collectors configured yet.</p>
       ) : (
-        <ul className="collector-list">
-          {collectors.map((collector) => (
-            <li
-              key={`collector-${collector.id}`}
-              className={updatedCollectorIds.includes(collector.id) ? "collector-live-updated" : ""}
-            >
-              <div>
-                <div className="record-title-row">
-                  <strong>{collector.name}</strong>
-                  <span className={`collector-health-pill collector-health-${collector.health_status ?? "offline"}`}>
-                    {collector.health_status ?? "offline"}
-                  </span>
-                </div>
-                <p>{collector.description || "No description"}</p>
-                <div className="activity-meta">
-                  <span>{collector.collector_type}</span>
-                  <span>prefix {collector.key_prefix}</span>
-                  <span>heartbeat {formatRelativeAge(collector.last_heartbeat_at)}</span>
-                  <span>count {collector.heartbeat_count ?? 0}</span>
-                  <span>source {collector.source_label || collector.name}</span>
-                </div>
-                <div className="collector-health-grid">
-                  <span>Agent <strong>{collector.agent_version || "unknown"}</strong></span>
-                  <span>Host <strong>{collector.host_name || "unknown"}</strong></span>
-                  <span>OS <strong>{[collector.os_name, collector.os_version].filter(Boolean).join(" ") || "unknown"}</strong></span>
-                  <span>Last events <strong>{collector.last_event_count ?? 0}</strong></span>
-                  <span>Last heartbeat <strong>{formatDateTime(collector.last_heartbeat_at)}</strong></span>
-                  <span>Last seen <strong>{formatDateTime(collector.last_seen_at)}</strong></span>
-                </div>
-                {collector.last_error && <p className="collector-error">Last error: {collector.last_error}</p>}
-              </div>
-              <div className="action-row">
-                <button type="button" disabled={!canAdmin || state === "saving"} onClick={() => onRotate(collector.id)}>
-                  Rotate Key
-                </button>
-                <button
-                  type="button"
-                  disabled={!canAdmin || state === "saving" || Boolean(collector.revoked_at)}
-                  onClick={() => onRevoke(collector.id)}
+        <>
+          <div className="collector-filters">
+            <label>
+              <span>Status</span>
+              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+                <option value="all">All statuses</option>
+                <option value="online">Online</option>
+                <option value="degraded">Degraded</option>
+                <option value="stale">Stale</option>
+                <option value="offline">Offline</option>
+                <option value="revoked">Revoked</option>
+              </select>
+            </label>
+            <label>
+              <span>Type</span>
+              <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
+                <option value="all">All types</option>
+                {collectorTypes.map((type) => (
+                  <option key={type} value={type}>{type}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="collector-fleet-layout">
+            <ul className="collector-list">
+              {filteredCollectors.length === 0 && (
+                <li>
+                  <p className="empty-state">No collectors match the selected fleet filters.</p>
+                </li>
+              )}
+              {filteredCollectors.map((collector) => (
+                <li
+                  key={`collector-${collector.id}`}
+                  className={updatedCollectorIds.includes(collector.id) ? "collector-live-updated" : ""}
                 >
-                  Revoke
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
+                  <button
+                    type="button"
+                    className="collector-select-button"
+                    onClick={() => setSelectedCollectorId(String(collector.id))}
+                  >
+                    <div className="record-title-row">
+                      <strong>{collector.name}</strong>
+                      <span className={`collector-health-pill collector-health-${collectorDisplayStatus(collector)}`}>
+                        {collectorDisplayStatus(collector)}
+                      </span>
+                    </div>
+                    <p>{collector.description || "No description"}</p>
+                    <div className="activity-meta">
+                      <span>{collector.collector_type}</span>
+                      <span>prefix {collector.key_prefix}</span>
+                      <span>heartbeat {formatRelativeAge(collector.last_heartbeat_at)}</span>
+                      <span>count {collector.heartbeat_count ?? 0}</span>
+                      <span>source {collector.source_label || collector.name}</span>
+                    </div>
+                  </button>
+                  <div className="action-row">
+                    <button type="button" disabled={!canAdmin || state === "saving"} onClick={() => onRotate(collector.id)}>
+                      Rotate Key
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!canAdmin || state === "saving" || Boolean(collector.revoked_at)}
+                      onClick={() => onRevoke(collector.id)}
+                    >
+                      Revoke
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            <aside className="collector-detail-card">
+              {selectedCollector ? (
+                <>
+                  <div className="record-title-row">
+                    <strong>{selectedCollector.name}</strong>
+                    <span className={`collector-health-pill collector-health-${collectorDisplayStatus(selectedCollector)}`}>
+                      {collectorDisplayStatus(selectedCollector)}
+                    </span>
+                  </div>
+                  <p>{selectedCollector.description || "No description"}</p>
+                  <div className="collector-health-grid">
+                    <span>Agent <strong>{selectedCollector.agent_version || "unknown"}</strong></span>
+                    <span>Host <strong>{selectedCollector.host_name || "unknown"}</strong></span>
+                    <span>OS <strong>{[selectedCollector.os_name, selectedCollector.os_version].filter(Boolean).join(" ") || "unknown"}</strong></span>
+                    <span>Last events <strong>{selectedCollector.last_event_count ?? 0}</strong></span>
+                    <span>Last heartbeat <strong>{formatDateTime(selectedCollector.last_heartbeat_at)}</strong></span>
+                    <span>Last seen <strong>{formatDateTime(selectedCollector.last_seen_at)}</strong></span>
+                    <span>Source label <strong>{selectedCollector.source_label || selectedCollector.name}</strong></span>
+                    <span>Created <strong>{formatDateTime(selectedCollector.created_at)}</strong></span>
+                    <span>Revoked <strong>{selectedCollector.revoked_at ? formatDateTime(selectedCollector.revoked_at) : "No"}</strong></span>
+                  </div>
+                  {selectedCollector.last_error && <p className="collector-error">Last error: {selectedCollector.last_error}</p>}
+                </>
+              ) : (
+                <p className="empty-state">Select a collector to inspect fleet metadata.</p>
+              )}
+            </aside>
+          </div>
+        </>
       )}
     </section>
   );
@@ -2774,10 +2894,12 @@ export default function Dashboard() {
   const [collectorHealthSummary, setCollectorHealthSummary] = useState({
     total_collectors: 0,
     online: 0,
+    degraded: 0,
     stale: 0,
     offline: 0,
     revoked: 0,
   });
+  const [collectorFleetSummary, setCollectorFleetSummary] = useState(null);
   const [collectorForm, setCollectorForm] = useState(initialCollectorForm);
   const [collectorState, setCollectorState] = useState("idle");
   const [collectorError, setCollectorError] = useState("");
@@ -2899,7 +3021,8 @@ export default function Dashboard() {
     }
     if (!currentUser) {
       setCollectors([]);
-      setCollectorHealthSummary({ total_collectors: 0, online: 0, stale: 0, offline: 0, revoked: 0 });
+      setCollectorHealthSummary({ total_collectors: 0, online: 0, degraded: 0, stale: 0, offline: 0, revoked: 0 });
+      setCollectorFleetSummary(null);
     }
   }, [currentUser?.id, isAdmin]);
 
@@ -3007,15 +3130,20 @@ export default function Dashboard() {
     try {
       setCollectorState("loading");
       setCollectorError("");
-      const result = await apiGet("/api/collectors/health");
+      const [result, fleetResult] = await Promise.all([
+        apiGet("/api/collectors/health?limit=100"),
+        apiGet("/api/collectors/fleet/summary?limit=100"),
+      ]);
       setCollectors(result.collectors ?? []);
       setCollectorHealthSummary({
         total_collectors: result.total_collectors ?? 0,
         online: result.online ?? 0,
+        degraded: result.degraded ?? 0,
         stale: result.stale ?? 0,
         offline: result.offline ?? 0,
         revoked: result.revoked ?? 0,
       });
+      setCollectorFleetSummary(fleetResult);
       setCollectorState("ready");
     } catch (requestError) {
       setCollectorError(requestError.message);
@@ -4304,6 +4432,7 @@ export default function Dashboard() {
         <CollectorManagementPanel
           collectors={collectors}
           healthSummary={collectorHealthSummary}
+          fleetSummary={collectorFleetSummary}
           form={collectorForm}
           state={collectorState}
           error={collectorError}

@@ -1335,7 +1335,7 @@ body {
 .collector-health-summary {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   margin-top: 16px;
 }
 
@@ -1369,6 +1369,74 @@ body {
   padding: 10px 12px;
 }
 
+.collector-local-control,
+.collector-fleet-insights,
+.collector-filters {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.collector-local-control {
+  align-items: center;
+  border: 1px solid #1e3a5f;
+  border-radius: 8px;
+  background: #0b1424;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 12px;
+}
+
+.collector-local-control strong {
+  color: #bae6fd;
+}
+
+.collector-local-control button,
+.collector-filters select {
+  border: 1px solid #38bdf8;
+  border-radius: 6px;
+  background: #1e3a5f;
+  color: #e5edf6;
+  font: inherit;
+  padding: 9px 12px;
+}
+
+.collector-fleet-insights {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.collector-fleet-insights div {
+  border: 1px solid #203047;
+  border-radius: 8px;
+  background: #0b1424;
+  padding: 12px;
+}
+
+.collector-fleet-insights span,
+.collector-filters span {
+  color: #93a4b8;
+  display: block;
+  font-size: 12px;
+}
+
+.collector-fleet-insights strong {
+  color: #e5edf6;
+  display: block;
+  font-size: 13px;
+  line-height: 1.4;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.collector-filters {
+  grid-template-columns: repeat(2, minmax(0, 220px));
+}
+
+.collector-fleet-layout {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.55fr);
+}
+
 .collector-list {
   display: grid;
   gap: 10px;
@@ -1383,6 +1451,17 @@ body {
   gap: 12px;
   grid-template-columns: minmax(0, 1fr) auto;
   padding-top: 12px;
+}
+
+.collector-select-button {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-align: left;
 }
 
 .collector-list li.collector-live-updated {
@@ -1414,6 +1493,12 @@ body {
   color: #fde68a;
 }
 
+.collector-health-degraded {
+  background: #442a08;
+  border-color: #f97316;
+  color: #fed7aa;
+}
+
 .collector-health-offline,
 .collector-health-revoked {
   background: #3f1d23;
@@ -1438,6 +1523,14 @@ body {
 
 .collector-error {
   color: #fecdd3 !important;
+}
+
+.collector-detail-card {
+  align-self: start;
+  border: 1px solid #203047;
+  border-radius: 8px;
+  background: #0b1424;
+  padding: 14px;
 }
 
 .admin-panel .section-heading {
@@ -2010,7 +2103,11 @@ body {
   }
 
   .collector-health-summary,
-  .collector-health-grid {
+  .collector-health-grid,
+  .collector-fleet-insights,
+  .collector-filters,
+  .collector-fleet-layout,
+  .collector-local-control {
     grid-template-columns: 1fr;
   }
 }

@@ -149,10 +149,11 @@ def serialize_collector(collector: Any) -> dict[str, Any]:
 
 def build_dashboard_metrics(db: Session) -> dict[str, Any]:
     """Build lightweight dashboard counters for realtime refresh hints."""
-    collectors = db.query(models.Collector).all()
-    health_counts = {"online": 0, "stale": 0, "offline": 0, "revoked": 0}
+    collectors = db.query(models.Collector).order_by(models.Collector.id.desc()).limit(500).all()
+    health_counts = {"online": 0, "degraded": 0, "stale": 0, "offline": 0, "revoked": 0}
     for collector in collectors:
         status = collector.health_status or "offline"
+        status = "degraded" if status == "online" and collector.last_error else status
         health_counts[status if status in health_counts else "offline"] += 1
     return {
         "assets_count": db.query(models.Asset).count(),

@@ -11,6 +11,8 @@ from app.db import models
 from app.schemas.collector import (
     CollectorCreate,
     CollectorCreatedResponse,
+    CollectorFleetDetail,
+    CollectorFleetSummary,
     CollectorHealthSummary,
     CollectorHeartbeatRequest,
     CollectorHeartbeatResponse,
@@ -28,6 +30,12 @@ from app.services.collector_service import (
     refresh_collector_health,
     revoke_collector,
     rotate_collector_key,
+)
+from app.services.collector_fleet_service import (
+    collector_detail,
+    offline_collectors,
+    summarize_fleet,
+    version_drift_collectors,
 )
 from app.services.detection_engine import run_detection_rules
 from app.services.log_ingestion_service import ingest_logs
@@ -175,33 +183,85 @@ async def collector_ingest_windows_events_bulk(
 
 @router.get("/", response_model=list[CollectorRead], summary="List collectors")
 def list_collectors(
+    limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
     _: models.User = Depends(require_role("analyst")),
 ) -> list[models.Collector]:
-    collectors = db.query(models.Collector).order_by(models.Collector.id.desc()).all()
+    collectors = db.query(models.Collector).order_by(models.Collector.id.desc()).limit(limit).all()
     _refresh_health_batch(db, collectors)
     return collectors
 
 
 @router.get("/health", response_model=CollectorHealthSummary, summary="Collector fleet health")
 def collector_health(
+    limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
     _: models.User = Depends(require_role("admin", "analyst", "viewer")),
 ) -> CollectorHealthSummary:
-    collectors = db.query(models.Collector).order_by(models.Collector.id.desc()).all()
+    collectors = db.query(models.Collector).order_by(models.Collector.id.desc()).limit(limit).all()
     _refresh_health_batch(db, collectors)
-    counts = {"online": 0, "stale": 0, "offline": 0, "revoked": 0}
+    counts = {"online": 0, "degraded": 0, "stale": 0, "offline": 0, "revoked": 0}
     for collector in collectors:
         status_key = collector.health_status or calculate_health_status(collector)
+        status_key = "degraded" if status_key == "online" and collector.last_error else status_key
         counts[status_key if status_key in counts else "offline"] += 1
     return CollectorHealthSummary(
         total_collectors=len(collectors),
         online=counts["online"],
+        degraded=counts["degraded"],
         stale=counts["stale"],
         offline=counts["offline"],
         revoked=counts["revoked"],
         collectors=collectors,
     )
+
+
+@router.get("/fleet/summary", response_model=CollectorFleetSummary, summary="Collector fleet summary")
+def collector_fleet_summary(
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _: models.User = Depends(require_role("admin", "analyst", "viewer")),
+) -> dict:
+    return summarize_fleet(db, limit=limit)
+
+
+@router.get("/fleet/health", response_model=CollectorFleetSummary, summary="Collector fleet health summary")
+def collector_fleet_health(
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _: models.User = Depends(require_role("admin", "analyst", "viewer")),
+) -> dict:
+    return summarize_fleet(db, limit=limit)
+
+
+@router.get("/fleet/offline", response_model=list[CollectorRead], summary="Offline or stale collectors")
+def collector_fleet_offline(
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _: models.User = Depends(require_role("admin", "analyst", "viewer")),
+) -> list[models.Collector]:
+    return offline_collectors(db, limit=limit)
+
+
+@router.get("/fleet/version-drift", response_model=list[CollectorRead], summary="Collectors with version drift")
+def collector_fleet_version_drift(
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _: models.User = Depends(require_role("admin", "analyst", "viewer")),
+) -> list[models.Collector]:
+    return version_drift_collectors(db, limit=limit)
+
+
+@router.get("/fleet/{collector_id}", response_model=CollectorFleetDetail, summary="Collector fleet detail")
+def collector_fleet_detail(
+    collector_id: int,
+    db: Session = Depends(get_db),
+    _: models.User = Depends(require_role("admin", "analyst", "viewer")),
+) -> dict:
+    detail = collector_detail(db, collector_id)
+    if detail is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collector not found")
+    return detail
 
 
 @router.post("/", response_model=CollectorCreatedResponse, status_code=201, summary="Create collector")
