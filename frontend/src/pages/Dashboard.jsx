@@ -1962,6 +1962,7 @@ function AdminUserManagementPanel({
   onDelete,
   onRefresh,
 }) {
+  const [roleView, setRoleView] = useState("menu");
   const selectedUser = userDetail ?? users.find((user) => String(user.id) === String(selectedUserId));
   const isSuperAdmin = currentUser?.email?.toLowerCase() === "phomolomatsoso@gmail.com";
   const isPendingPrivileged =
@@ -1969,6 +1970,14 @@ function AdminUserManagementPanel({
     ["admin", "analyst"].includes(selectedUser.role) &&
     !selectedUser.is_active &&
     (selectedUser.disabled_reason || "").toLowerCase().includes("pending");
+  const roleMenu = [
+    { key: "admin", label: "Admins" },
+    { key: "analyst", label: "Analysts" },
+    { key: "viewer", label: "Viewers" },
+  ];
+  const visibleUsers = roleView === "menu" ? [] : users.filter((user) => user.role === roleView);
+  const pendingCount = (role) =>
+    users.filter((user) => user.role === role && !user.is_active && (user.disabled_reason || "").toLowerCase().includes("pending")).length;
 
   return (
     <section className="admin-panel">
@@ -1988,25 +1997,49 @@ function AdminUserManagementPanel({
         <div className="admin-user-list">
           {users.length === 0 ? (
             <p className="empty-state">No users found.</p>
+          ) : roleView === "menu" ? (
+            <div className="case-form-grid">
+              {roleMenu.map((role) => {
+                const count = users.filter((user) => user.role === role.key).length;
+                const pending = pendingCount(role.key);
+                return (
+                  <button key={role.key} type="button" onClick={() => setRoleView(role.key)}>
+                    <strong>{role.label}</strong>
+                    <span>{count} users</span>
+                    {pending > 0 && <span>{pending} pending approval</span>}
+                  </button>
+                );
+              })}
+            </div>
           ) : (
-            users.map((user) => (
-              <button
-                key={user.id}
-                type="button"
-                className={String(selectedUserId) === String(user.id) ? "active-user" : ""}
-                onClick={() => onSelectUser(String(user.id))}
-              >
-                <strong>{user.full_name}</strong>
-                <span>{user.username}</span>
-                <span>Registered {formatDateTime(user.created_at)}</span>
-                <div className="admin-badge-row">
-                  <span className={`role-pill role-${user.role}`}>{user.role}</span>
-                  <span className={`account-pill ${user.is_active ? "account-active" : "account-inactive"}`}>
-                    {user.is_active ? "active" : "inactive"}
-                  </span>
-                </div>
-              </button>
-            ))
+            <>
+              <div className="record-title-row">
+                <h3>{roleMenu.find((role) => role.key === roleView)?.label}</h3>
+                <button type="button" onClick={() => setRoleView("menu")}>Back to User Menu</button>
+              </div>
+              {visibleUsers.length === 0 ? (
+                <p className="empty-state">No {roleView} users found.</p>
+              ) : (
+                visibleUsers.map((user) => (
+                  <button
+                    key={user.id}
+                    type="button"
+                    className={String(selectedUserId) === String(user.id) ? "active-user" : ""}
+                    onClick={() => onSelectUser(String(user.id))}
+                  >
+                    <strong>{user.full_name}</strong>
+                    <span>{user.username}</span>
+                    <span>Registered {formatDateTime(user.created_at)}</span>
+                    <div className="admin-badge-row">
+                      <span className={`role-pill role-${user.role}`}>{user.role}</span>
+                      <span className={`account-pill ${user.is_active ? "account-active" : "account-inactive"}`}>
+                        {user.is_active ? "active" : "inactive"}
+                      </span>
+                    </div>
+                  </button>
+                ))
+              )}
+            </>
           )}
         </div>
 
