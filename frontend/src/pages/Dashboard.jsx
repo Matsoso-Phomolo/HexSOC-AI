@@ -1998,6 +1998,7 @@ function AdminUserManagementPanel({
               >
                 <strong>{user.full_name}</strong>
                 <span>{user.username}</span>
+                <span>Registered {formatDateTime(user.created_at)}</span>
                 <div className="admin-badge-row">
                   <span className={`role-pill role-${user.role}`}>{user.role}</span>
                   <span className={`account-pill ${user.is_active ? "account-active" : "account-inactive"}`}>
@@ -2035,6 +2036,10 @@ function AdminUserManagementPanel({
                 <div>
                   <span>Last login</span>
                   <strong>{formatDateTime(selectedUser.last_login_at)}</strong>
+                </div>
+                <div>
+                  <span>Registered</span>
+                  <strong>{formatDateTime(selectedUser.created_at)}</strong>
                 </div>
                 <div>
                   <span>Updated</span>
