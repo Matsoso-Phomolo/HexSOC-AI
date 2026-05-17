@@ -315,6 +315,62 @@ function threatLevel(score, knownMalicious = false) {
   return "unknown";
 }
 
+const highValueActivityActions = new Set([
+  "incident_escalated",
+  "user_deleted",
+  "user_role_changed",
+  "collector_revoked",
+  "collector_key_rotated",
+  "permission_denied",
+  "failed_login",
+  "attack_chains_rebuilt",
+  "workspace_evidence_checklist_created",
+]);
+
+function aggregateActivityTimeline(activity) {
+  const heartbeatGroups = new Map();
+  const visible = [];
+
+  for (const item of activity) {
+    if (item.action !== "collector_heartbeat_received") {
+      visible.push({ ...item, displayType: "activity" });
+      continue;
+    }
+
+    const key = item.entity_id ?? item.message ?? "collector";
+    const current = heartbeatGroups.get(key) ?? {
+      ...item,
+      displayType: "heartbeat_summary",
+      count: 0,
+      first_at: item.created_at,
+      latest_at: item.created_at,
+    };
+    current.count += 1;
+    if (new Date(item.created_at) > new Date(current.latest_at)) current.latest_at = item.created_at;
+    if (new Date(item.created_at) < new Date(current.first_at)) current.first_at = item.created_at;
+    heartbeatGroups.set(key, current);
+  }
+
+  heartbeatGroups.forEach((item) => {
+    const nameMatch = (item.message ?? "").match(/collector\s+(.+?)\./i);
+    visible.push({
+      ...item,
+      action: "collector_health_summary",
+      message: `${nameMatch?.[1] ?? "Collector"} healthy - ${item.count} heartbeats in recent activity`,
+      created_at: item.latest_at,
+      severity: "info",
+    });
+  });
+
+  return visible
+    .sort((left, right) => new Date(right.created_at) - new Date(left.created_at))
+    .sort((left, right) => Number(highValueActivityActions.has(right.action)) - Number(highValueActivityActions.has(left.action)));
+}
+
+function moduleBadge(label, value, tone = "info") {
+  return { label, value, tone };
+}
+
 function StatusBadge({ status, allowedStatuses }) {
   const normalizedStatus = status ?? "unknown";
   const badgeClass = allowedStatuses.includes(normalizedStatus)
@@ -332,6 +388,47 @@ function RealtimeBadge({ status }) {
   };
 
   return <span className={`live-badge live-${status}`}>{labels[status] ?? "Offline"}</span>;
+}
+
+function CollapsibleModule({ moduleKey, title, description, badges = [], collapsed, onToggle, children }) {
+  if (collapsed) {
+    return (
+      <section className="module-shell module-collapsed">
+        <button type="button" className="module-summary" onClick={() => onToggle(moduleKey)} aria-expanded="false">
+          <div>
+            <h2>{title}</h2>
+            <p>{description}</p>
+          </div>
+          <div className="module-badges">
+            {badges.slice(0, 4).map((badge) => (
+              <span key={`${moduleKey}-${badge.label}`} className={`module-badge module-${badge.tone ?? "info"}`}>
+                {badge.label}: {badge.value}
+              </span>
+            ))}
+            <span className="module-toggle">Expand</span>
+          </div>
+        </button>
+      </section>
+    );
+  }
+
+  return (
+    <section className="module-shell">
+      <div className="module-open-bar">
+        <div className="module-badges">
+          {badges.slice(0, 4).map((badge) => (
+            <span key={`${moduleKey}-${badge.label}`} className={`module-badge module-${badge.tone ?? "info"}`}>
+              {badge.label}: {badge.value}
+            </span>
+          ))}
+        </div>
+        <button type="button" onClick={() => onToggle(moduleKey)} aria-expanded="true">
+          Collapse
+        </button>
+      </div>
+      {children}
+    </section>
+  );
 }
 
 function ThreatBadges({ item }) {
@@ -683,6 +780,16 @@ function AuthScreen({ authMode, authForm, authError, authState, onModeChange, on
 }
 
 function DataSection({ section, items }) {
+  const [expandedEvents, setExpandedEvents] = useState(() => new Set());
+  const toggleEvent = (eventId) => {
+    setExpandedEvents((current) => {
+      const next = new Set(current);
+      if (next.has(eventId)) next.delete(eventId);
+      else next.add(eventId);
+      return next;
+    });
+  };
+
   return (
     <section className="data-section">
       <div className="section-heading">
@@ -695,14 +802,37 @@ function DataSection({ section, items }) {
       ) : (
         <ul className="data-list">
           {items.slice(0, 5).map((item) => (
-            <li key={`${section.key}-${item.id}`}>
-              <div>
-                <strong>{getPrimaryText(section.key, item) ?? "Untitled"}</strong>
-                <p>{getSecondaryText(section.key, item) || "No additional context"}</p>
-                <ThreatBadges item={item} />
-                <MitreBadges item={item} />
+            <li key={`${section.key}-${item.id}`} className={section.key === "events" ? "compact-event-card" : ""}>
+              <div className="record-body">
+                <div className="record-title-row">
+                  <strong>{getPrimaryText(section.key, item) ?? "Untitled"}</strong>
+                  {section.key === "events" && <span className="severity">{item.severity ?? "info"}</span>}
+                </div>
+                {section.key === "events" ? (
+                  <>
+                    <p>{[item.hostname, item.source, item.source_ip].filter(Boolean).join(" | ") || "No source context"}</p>
+                    <div className="activity-meta">
+                      {item.username && <span>{item.username}</span>}
+                      {item.destination_ip && <span>{item.destination_ip}</span>}
+                      {item.mitre_confidence && <span>Confidence {item.mitre_confidence}</span>}
+                    </div>
+                    <MitreBadges item={item} />
+                    <button type="button" className="inline-detail-button" onClick={() => toggleEvent(item.id)}>
+                      {expandedEvents.has(item.id) ? "Hide details" : "Expand details"}
+                    </button>
+                    {expandedEvents.has(item.id) && (
+                      <p className="expanded-event-message">{getSecondaryText(section.key, item) || "No additional context"}</p>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <p>{getSecondaryText(section.key, item) || "No additional context"}</p>
+                    <ThreatBadges item={item} />
+                    <MitreBadges item={item} />
+                  </>
+                )}
               </div>
-              <span className="severity">{item.severity ?? "info"}</span>
+              {section.key !== "events" && <span className="severity">{item.severity ?? "info"}</span>}
             </li>
           ))}
         </ul>
@@ -1970,6 +2100,7 @@ function AdminUserManagementPanel({
   onRefresh,
 }) {
   const [roleView, setRoleView] = useState("menu");
+  const [detailTab, setDetailTab] = useState("overview");
   const selectedUser = userDetail ?? users.find((user) => String(user.id) === String(selectedUserId));
   const isPendingPrivileged =
     selectedUser &&
@@ -2067,87 +2198,109 @@ function AdminUserManagementPanel({
                 </div>
               </div>
 
-              <div className="admin-meta-grid">
-                <div>
-                  <span>Username</span>
-                  <strong>{selectedUser.username}</strong>
-                </div>
-                <div>
-                  <span>Last login</span>
-                  <strong>{formatDateTime(selectedUser.last_login_at)}</strong>
-                </div>
-                <div>
-                  <span>Registered</span>
-                  <strong>{formatDateTime(selectedUser.created_at)}</strong>
-                </div>
-                <div>
-                  <span>Updated</span>
-                  <strong>{formatDateTime(selectedUser.updated_at)}</strong>
-                </div>
-                <div>
-                  <span>Disabled reason</span>
-                  <strong>{selectedUser.disabled_reason ?? "n/a"}</strong>
-                </div>
-              </div>
-
-              <div className="case-form-grid">
-                <Field label="Full name" name="full_name" value={adminForm.full_name} onChange={onFormChange} />
-                <Field label="Email" name="email" value={adminForm.email} onChange={onFormChange} />
-                <label>
-                  <span>Role</span>
-                  <select value={adminRole} onChange={(event) => onRoleChange(event.target.value)}>
-                    <option value="admin">admin</option>
-                    <option value="analyst">analyst</option>
-                    <option value="viewer">viewer</option>
-                  </select>
-                </label>
-              </div>
-
-              <div className="action-row">
-                <button type="button" disabled={state === "saving"} onClick={onUpdateUser}>
-                  Update Profile
-                </button>
-                <button type="button" disabled={state === "saving" || (!isSuperAdmin && ["admin", "analyst"].includes(adminRole))} onClick={onChangeRole}>
-                  Change Role
-                </button>
-                {selectedUser.is_active ? (
+              <div className="admin-tab-row" role="tablist" aria-label="User management detail tabs">
+                {["overview", "security", "audit", "governance"].map((tab) => (
                   <button
+                    key={tab}
                     type="button"
-                    disabled={state === "saving" || selectedUser.id === currentUser.id}
-                    onClick={onDeactivate}
+                    className={detailTab === tab ? "active-tab" : ""}
+                    onClick={() => setDetailTab(tab)}
                   >
-                    Deactivate
+                    {tab}
                   </button>
-                ) : (
-                  <button type="button" disabled={state === "saving" || (isPendingPrivileged && !isSuperAdmin)} onClick={onActivate}>
-                    Activate
-                  </button>
-                )}
-                {isSuperAdmin && isPendingPrivileged && (
-                  <button type="button" disabled={state === "saving" || selectedUser.id === currentUser.id} onClick={onDisapprove}>
-                    Disapprove Request
-                  </button>
-                )}
-                {isSuperAdmin && selectedUser.id !== currentUser.id && (
-                  <button type="button" disabled={state === "saving"} onClick={onDelete}>
-                    Delete User
-                  </button>
-                )}
+                ))}
               </div>
 
-              <h3 className="admin-subheading">Login Audit Preview</h3>
-              {userDetail?.login_audits?.length ? (
-                <ul className="case-feed">
-                  {userDetail.login_audits.map((audit) => (
-                    <li key={`audit-${audit.id}`}>
-                      <strong>{audit.success ? "Successful login" : "Failed login"}</strong>
-                      <p>{audit.reason ?? "No reason"} | {audit.ip_address ?? "unknown IP"}</p>
-                      <span>{formatDateTime(audit.created_at)}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="empty-state">No login audit records yet.</p>
+              {detailTab === "overview" && (
+                <>
+                  <div className="admin-meta-grid">
+                    <div><span>Username</span><strong>{selectedUser.username}</strong></div>
+                    <div><span>Email</span><strong>{selectedUser.email}</strong></div>
+                    <div><span>Role</span><strong>{selectedUser.role}</strong></div>
+                    <div><span>Status</span><strong>{selectedUser.is_active ? "active" : "inactive"}</strong></div>
+                    <div><span>Disabled reason</span><strong>{selectedUser.disabled_reason ?? "n/a"}</strong></div>
+                  </div>
+                  <div className="case-form-grid">
+                    <Field label="Full name" name="full_name" value={adminForm.full_name} onChange={onFormChange} />
+                    <Field label="Email" name="email" value={adminForm.email} onChange={onFormChange} />
+                  </div>
+                  <div className="action-row">
+                    <button type="button" disabled={state === "saving"} onClick={onUpdateUser}>
+                      Update Profile
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {detailTab === "security" && (
+                <>
+                  <div className="admin-meta-grid">
+                    <div><span>Last login</span><strong>{formatDateTime(selectedUser.last_login_at)}</strong></div>
+                    <div><span>Registered</span><strong>{formatDateTime(selectedUser.created_at)}</strong></div>
+                    <div><span>Updated</span><strong>{formatDateTime(selectedUser.updated_at)}</strong></div>
+                  </div>
+                  <h3 className="admin-subheading">Login Audit Preview</h3>
+                  {userDetail?.login_audits?.length ? (
+                    <ul className="case-feed compact-feed">
+                      {userDetail.login_audits.map((audit) => (
+                        <li key={`audit-${audit.id}`}>
+                          <strong>{audit.success ? "Successful login" : "Failed login"}</strong>
+                          <p>{audit.reason ?? "No reason"} | {audit.ip_address ?? "unknown IP"}</p>
+                          <span>{formatDateTime(audit.created_at)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="empty-state">No login audit records yet.</p>
+                  )}
+                </>
+              )}
+
+              {detailTab === "audit" && (
+                <p className="empty-state">Recent user governance activity will appear here as audit filters are expanded.</p>
+              )}
+
+              {detailTab === "governance" && (
+                <>
+                  <div className="case-form-grid">
+                    <label>
+                      <span>Role</span>
+                      <select value={adminRole} onChange={(event) => onRoleChange(event.target.value)}>
+                        <option value="admin">admin</option>
+                        <option value="analyst">analyst</option>
+                        <option value="viewer">viewer</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="action-row">
+                    <button type="button" disabled={state === "saving" || (!isSuperAdmin && ["admin", "analyst"].includes(adminRole))} onClick={onChangeRole}>
+                      Change Role
+                    </button>
+                    {selectedUser.is_active ? (
+                      <button
+                        type="button"
+                        disabled={state === "saving" || selectedUser.id === currentUser.id}
+                        onClick={onDeactivate}
+                      >
+                        Deactivate
+                      </button>
+                    ) : (
+                      <button type="button" disabled={state === "saving" || (isPendingPrivileged && !isSuperAdmin)} onClick={onActivate}>
+                        Activate
+                      </button>
+                    )}
+                    {isSuperAdmin && isPendingPrivileged && (
+                      <button type="button" disabled={state === "saving" || selectedUser.id === currentUser.id} onClick={onDisapprove}>
+                        Disapprove Request
+                      </button>
+                    )}
+                    {isSuperAdmin && selectedUser.id !== currentUser.id && (
+                      <button type="button" disabled={state === "saving"} onClick={onDelete}>
+                        Delete User
+                      </button>
+                    )}
+                  </div>
+                </>
               )}
             </>
           )}
@@ -2424,6 +2577,57 @@ function NotificationStatusPanel({
             </li>
           ))}
         </ul>
+      )}
+    </section>
+  );
+}
+
+function SystemHealthStrip({ backendStatus, realtimeStatus, collectors, iocSyncStatus, auditSummary, notificationSummary }) {
+  const onlineCollectors = collectors.filter((collector) => collectorDisplayStatus(collector) === "online").length;
+  const degradedCollectors = collectors.filter((collector) => ["offline", "stale", "degraded"].includes(collectorDisplayStatus(collector))).length;
+
+  return (
+    <section className="system-health-strip" aria-label="System health">
+      <div><span>Backend</span><strong>{backendStatus === "ready" ? "Ready" : backendStatus}</strong></div>
+      <div><span>Live</span><strong>{realtimeStatus}</strong></div>
+      <div><span>Collectors</span><strong>{onlineCollectors} online</strong>{degradedCollectors > 0 && <small>{degradedCollectors} attention</small>}</div>
+      <div><span>Threat Intel</span><strong>{iocSyncStatus?.active_iocs ?? 0} IOCs</strong></div>
+      <div><span>Audit</span><strong>{auditSummary?.total ?? 0} events</strong></div>
+      <div><span>Notifications</span><strong>{notificationSummary?.notifications_enabled ? "enabled" : "disabled"}</strong></div>
+    </section>
+  );
+}
+
+function GlobalSearchPanel({ query, results, onQueryChange, onClear }) {
+  return (
+    <section className="global-search-panel">
+      <label>
+        <span>Search dashboard</span>
+        <input
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+          placeholder="Search assets, alerts, incidents, collectors, users, chains..."
+        />
+      </label>
+      {query && (
+        <button type="button" onClick={onClear}>
+          Clear
+        </button>
+      )}
+      {query && (
+        <div className="global-search-results">
+          {results.length === 0 ? (
+            <p className="empty-state">No local dashboard matches.</p>
+          ) : (
+            results.slice(0, 12).map((result) => (
+              <div key={`${result.type}-${result.id}`}>
+                <strong>{result.label}</strong>
+                <span>{result.type}</span>
+                <p>{result.detail}</p>
+              </div>
+            ))
+          )}
+        </div>
       )}
     </section>
   );
@@ -2971,17 +3175,24 @@ function AlertSection({ alerts, onStatusChange, updatingKey, canOperate }) {
                 <p>{[alert.source, alert.description].filter(Boolean).join(" | ") || "No alert context"}</p>
                 <ThreatBadges item={alert} />
                 <MitreBadges item={alert} />
-                <div className="action-row">
-                  {alertActions.map((action) => (
-                    <button
-                      key={`${alert.id}-${action.status}`}
-                      type="button"
-                      disabled={!canOperate || alert.status === action.status || updatingKey === `alert-${alert.id}`}
-                      onClick={() => onStatusChange(alert.id, action.status)}
+                <div className="compact-action-row">
+                  <label>
+                    <span>Actions</span>
+                    <select
+                      value=""
+                      disabled={!canOperate || updatingKey === `alert-${alert.id}`}
+                      onChange={(event) => {
+                        if (event.target.value) onStatusChange(alert.id, event.target.value);
+                      }}
                     >
-                      {action.label}
-                    </button>
-                  ))}
+                      <option value="">Choose action</option>
+                      {alertActions.map((action) => (
+                        <option key={`${alert.id}-${action.status}`} value={action.status} disabled={alert.status === action.status}>
+                          {action.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
               </div>
               <span className="severity">{alert.severity ?? "info"}</span>
@@ -3036,6 +3247,8 @@ function IncidentSection({ incidents, onStatusChange, updatingKey, canOperate })
 }
 
 function ActivitySection({ activity }) {
+  const visibleActivity = aggregateActivityTimeline(activity).slice(0, 8);
+
   return (
     <section className="data-section activity-section">
       <div className="section-heading">
@@ -3047,8 +3260,8 @@ function ActivitySection({ activity }) {
         <p className="empty-state">No activity records found.</p>
       ) : (
         <ul className="data-list">
-          {activity.slice(0, 8).map((item) => (
-            <li key={`activity-${item.id}`} className="activity-item">
+          {visibleActivity.map((item) => (
+            <li key={`activity-${item.displayType ?? "activity"}-${item.id}`} className={`activity-item ${item.displayType === "heartbeat_summary" ? "activity-aggregated" : ""}`}>
               <div className="record-body">
                 <div className="record-title-row">
                   <strong>{item.action}</strong>
@@ -3059,6 +3272,7 @@ function ActivitySection({ activity }) {
                   <span>{item.entity_type}</span>
                   <span>#{item.entity_id ?? "n/a"}</span>
                   <span>{item.severity ?? "info"}</span>
+                  {item.count && <span>{item.count} grouped</span>}
                 </div>
               </div>
             </li>
@@ -3088,6 +3302,14 @@ export default function Dashboard() {
     incidents: [],
     activity: [],
   });
+  const [collapsedModules, setCollapsedModules] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("hexsoc-collapsed-modules") ?? "{}");
+    } catch {
+      return {};
+    }
+  });
+  const [globalSearch, setGlobalSearch] = useState("");
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
   const [updatingKey, setUpdatingKey] = useState("");
@@ -3251,6 +3473,44 @@ export default function Dashboard() {
   const isAdmin = can(currentUser, PERMISSIONS.USER_READ);
   const canReadAudit = can(currentUser, PERMISSIONS.AUDIT_READ);
   const isSuperAdmin = currentEffectiveRole === "super_admin";
+  const toggleModule = (moduleKey) => {
+    setCollapsedModules((current) => {
+      const next = { ...current, [moduleKey]: !current[moduleKey] };
+      localStorage.setItem("hexsoc-collapsed-modules", JSON.stringify(next));
+      return next;
+    });
+  };
+  const moduleProps = (moduleKey, title, description, badges = []) => ({
+    moduleKey,
+    title,
+    description,
+    badges,
+    collapsed: Boolean(collapsedModules[moduleKey]),
+    onToggle: toggleModule,
+  });
+  const globalSearchResults = useMemo(() => {
+    const query = globalSearch.trim().toLowerCase();
+    if (!query) return [];
+    const matches = [];
+    const pushMatches = (type, items, labeler, detailer) => {
+      for (const item of items ?? []) {
+        const label = labeler(item);
+        const detail = detailer(item);
+        const haystack = `${label} ${detail}`.toLowerCase();
+        if (haystack.includes(query)) {
+          matches.push({ type, id: item.id ?? item.chain_id ?? item.username ?? label, label, detail });
+        }
+      }
+    };
+    pushMatches("asset", data.assets, (item) => item.hostname ?? `asset ${item.id}`, (item) => [item.ip_address, item.role, item.status].filter(Boolean).join(" | "));
+    pushMatches("event", data.events, (item) => item.event_type ?? `event ${item.id}`, (item) => [item.hostname, item.username, item.source_ip, item.raw_message].filter(Boolean).join(" | "));
+    pushMatches("alert", data.alerts, (item) => item.title ?? `alert ${item.id}`, (item) => [item.status, item.severity, item.description].filter(Boolean).join(" | "));
+    pushMatches("incident", data.incidents, (item) => item.title ?? `incident ${item.id}`, (item) => [item.status, item.severity, item.description].filter(Boolean).join(" | "));
+    pushMatches("collector", collectors, (item) => item.name ?? `collector ${item.id}`, (item) => [item.health_status, item.collector_type, item.source_label, item.host_name].filter(Boolean).join(" | "));
+    pushMatches("user", adminUsers, (item) => item.full_name ?? item.username, (item) => [item.username, item.email, item.role].filter(Boolean).join(" | "));
+    pushMatches("attack chain", attackChains.chains ?? [], (item) => item.title ?? item.chain_id, (item) => [item.classification, item.risk_score, item.primary_group].filter(Boolean).join(" | "));
+    return matches;
+  }, [adminUsers, attackChains.chains, collectors, data, globalSearch]);
 
   useEffect(() => {
     async function loadSession() {
@@ -4615,6 +4875,25 @@ export default function Dashboard() {
         )}
       </section>
 
+      {status === "ready" && (
+        <>
+          <SystemHealthStrip
+            backendStatus={status}
+            realtimeStatus={realtimeStatus}
+            collectors={collectors}
+            iocSyncStatus={iocSyncStatus}
+            auditSummary={auditSummary}
+            notificationSummary={notificationSummary}
+          />
+          <GlobalSearchPanel
+            query={globalSearch}
+            results={globalSearchResults}
+            onQueryChange={setGlobalSearch}
+            onClear={() => setGlobalSearch("")}
+          />
+        </>
+      )}
+
       {status === "loading" && <div className="state-panel">Loading live SOC data...</div>}
 
       {status === "error" && (
@@ -4643,292 +4922,368 @@ export default function Dashboard() {
       )}
 
       {status === "ready" && (
-        <DetectionPanel
-          detectionState={detectionState}
-          detectionResult={detectionResult}
-          detectionError={detectionError}
-          onRun={handleRunDetectionEngine}
-          canOperate={canRunDetection}
-        />
+        <CollapsibleModule {...moduleProps("detection", "Detection Engine", "Run deterministic SOC rules against recent security events.", [
+          moduleBadge("matches", detectionResult?.matches_found ?? 0),
+          moduleBadge("alerts", detectionResult?.alerts_created ?? 0, (detectionResult?.alerts_created ?? 0) > 0 ? "warning" : "info"),
+        ])}>
+          <DetectionPanel
+            detectionState={detectionState}
+            detectionResult={detectionResult}
+            detectionError={detectionError}
+            onRun={handleRunDetectionEngine}
+            canOperate={canRunDetection}
+          />
+        </CollapsibleModule>
       )}
 
       {status === "ready" && (
-        <LogIngestionPanel
-          mode={ingestionMode}
-          value={ingestionText}
-          autoDetect={ingestionAutoDetect}
-          state={ingestionState}
-          result={ingestionResult}
-          error={ingestionError}
-          onModeChange={(mode) => {
-            setIngestionMode(mode);
-            setIngestionText(JSON.stringify(mode === "windows" ? sampleWindowsSysmonEvents : sampleIngestionLogs, null, 2));
-            setIngestionError("");
-          }}
-          onChange={setIngestionText}
-          onAutoDetectChange={setIngestionAutoDetect}
-          onLoadSample={() => {
-            setIngestionMode("normalized");
-            setIngestionText(JSON.stringify(sampleIngestionLogs, null, 2));
-            setIngestionError("");
-          }}
-          onLoadWindowsSample={() => {
-            setIngestionMode("windows");
-            setIngestionText(JSON.stringify(sampleWindowsSysmonEvents, null, 2));
-            setIngestionError("");
-          }}
-          onIngest={handleIngestLogs}
-          canOperate={canOperate}
-        />
+        <CollapsibleModule {...moduleProps("ingestion", "Log Ingestion Pipeline", "Paste normalized or Windows/Sysmon telemetry.", [
+          moduleBadge("mode", ingestionMode),
+          moduleBadge("ingested", ingestionResult?.ingested ?? 0),
+        ])}>
+          <LogIngestionPanel
+            mode={ingestionMode}
+            value={ingestionText}
+            autoDetect={ingestionAutoDetect}
+            state={ingestionState}
+            result={ingestionResult}
+            error={ingestionError}
+            onModeChange={(mode) => {
+              setIngestionMode(mode);
+              setIngestionText(JSON.stringify(mode === "windows" ? sampleWindowsSysmonEvents : sampleIngestionLogs, null, 2));
+              setIngestionError("");
+            }}
+            onChange={setIngestionText}
+            onAutoDetectChange={setIngestionAutoDetect}
+            onLoadSample={() => {
+              setIngestionMode("normalized");
+              setIngestionText(JSON.stringify(sampleIngestionLogs, null, 2));
+              setIngestionError("");
+            }}
+            onLoadWindowsSample={() => {
+              setIngestionMode("windows");
+              setIngestionText(JSON.stringify(sampleWindowsSysmonEvents, null, 2));
+              setIngestionError("");
+            }}
+            onIngest={handleIngestLogs}
+            canOperate={canOperate}
+          />
+        </CollapsibleModule>
       )}
 
       {status === "ready" && (
-        <ThreatIntelPanel
-          threatState={threatState}
-          threatResult={threatResult}
-          threatError={threatError}
-          onRun={handleRunThreatIntel}
-          canOperate={canRunThreatIntel}
-        />
+        <CollapsibleModule {...moduleProps("threat-intel", "Threat Intelligence", "Enrich source IPs with provider-ready context.", [
+          moduleBadge("source IPs", threatResult?.source_ips_checked ?? 0),
+          moduleBadge("alerts", threatResult?.alerts_enriched ?? 0),
+        ])}>
+          <ThreatIntelPanel
+            threatState={threatState}
+            threatResult={threatResult}
+            threatError={threatError}
+            onRun={handleRunThreatIntel}
+            canOperate={canRunThreatIntel}
+          />
+        </CollapsibleModule>
       )}
 
       {status === "ready" && (
-        <IOCInvestigationPanel
-          syncStatus={iocSyncStatus}
-          relationshipSummary={iocRelationshipSummary}
-          state={iocPanelState}
-          error={iocPanelError}
-          searchQuery={iocSearchQuery}
-          searchResult={iocSearchResult}
-          searchState={iocSearchState}
-          correlationInput={iocCorrelationInput}
-          correlationResult={iocCorrelationResult}
-          correlationState={iocCorrelationState}
-          graphForm={iocGraphForm}
-          graphResult={iocGraphResult}
-          graphState={iocGraphState}
-          onSearchQueryChange={setIocSearchQuery}
-          onCorrelationInputChange={setIocCorrelationInput}
-          onGraphFormChange={handleIOCGraphFormChange}
-          onSearch={handleIOCSearch}
-          onCorrelate={handleIOCCorrelate}
-          onGraphEnrich={handleIOCGraphEnrich}
-          onRefresh={loadIOCIntelligence}
-          canOperate={canRunThreatIntel}
-        />
+        <CollapsibleModule {...moduleProps("ioc-intelligence", "IOC Intelligence", "Search, correlate, and preview IOC relationships.", [
+          moduleBadge("active", iocSyncStatus?.active_iocs ?? 0),
+          moduleBadge("relationships", iocRelationshipSummary?.total_relationships ?? 0),
+        ])}>
+          <IOCInvestigationPanel
+            syncStatus={iocSyncStatus}
+            relationshipSummary={iocRelationshipSummary}
+            state={iocPanelState}
+            error={iocPanelError}
+            searchQuery={iocSearchQuery}
+            searchResult={iocSearchResult}
+            searchState={iocSearchState}
+            correlationInput={iocCorrelationInput}
+            correlationResult={iocCorrelationResult}
+            correlationState={iocCorrelationState}
+            graphForm={iocGraphForm}
+            graphResult={iocGraphResult}
+            graphState={iocGraphState}
+            onSearchQueryChange={setIocSearchQuery}
+            onCorrelationInputChange={setIocCorrelationInput}
+            onGraphFormChange={handleIOCGraphFormChange}
+            onSearch={handleIOCSearch}
+            onCorrelate={handleIOCCorrelate}
+            onGraphEnrich={handleIOCGraphEnrich}
+            onRefresh={loadIOCIntelligence}
+            canOperate={canRunThreatIntel}
+          />
+        </CollapsibleModule>
       )}
 
       {status === "ready" && (
-        <MitreCoveragePanel
-          coverage={mitreCoverage}
-          state={mitreState}
-          error={mitreError}
-          onRun={handleRunMitreMapping}
-          onRefresh={loadMitreCoverage}
-          canOperate={canRunMitre}
-        />
+        <CollapsibleModule {...moduleProps("mitre", "MITRE ATT&CK Coverage", "Map telemetry and detections to ATT&CK.", [
+          moduleBadge("events", `${mitreCoverage?.mapped_events ?? 0}/${mitreCoverage?.total_events ?? 0}`),
+          moduleBadge("alerts", `${mitreCoverage?.mapped_alerts ?? 0}/${mitreCoverage?.total_alerts ?? 0}`),
+        ])}>
+          <MitreCoveragePanel
+            coverage={mitreCoverage}
+            state={mitreState}
+            error={mitreError}
+            onRun={handleRunMitreMapping}
+            onRefresh={loadMitreCoverage}
+            canOperate={canRunMitre}
+          />
+        </CollapsibleModule>
       )}
 
       {status === "ready" && (
-        <CorrelationPanel
-          correlationState={correlationState}
-          correlationResult={correlationResult}
-          correlationError={correlationError}
-          onRun={handleRunCorrelationEngine}
-          canOperate={canRunCorrelation}
-        />
+        <CollapsibleModule {...moduleProps("attack-chains", "Attack Chains", "Correlate events, alerts, assets, and incidents.", [
+          moduleBadge("chains", correlationResult?.chains?.length ?? 0),
+          moduleBadge("source IPs", correlationResult?.summary?.source_ips ?? 0),
+        ])}>
+          <CorrelationPanel
+            correlationState={correlationState}
+            correlationResult={correlationResult}
+            correlationError={correlationError}
+            onRun={handleRunCorrelationEngine}
+            canOperate={canRunCorrelation}
+          />
+        </CollapsibleModule>
       )}
 
       {status === "ready" && (
-        <AttackChainIntelligencePanel
-          chains={attackChains}
-          campaigns={campaigns}
-          selectedChainId={selectedAttackChainId}
-          timeline={attackChainTimeline}
-          state={attackChainState}
-          timelineState={attackChainTimelineState}
-          error={attackChainError}
-          rebuildResult={attackChainRebuildResult}
-          escalationResult={attackChainEscalationResult}
-          escalationState={attackChainEscalationState}
-          onRebuild={handleRebuildAttackChains}
-          onSelectChain={(chainId) => {
-            setSelectedAttackChainId(chainId);
-            setAttackChainEscalationResult(null);
-          }}
-          onEscalateChain={handleEscalateSelectedAttackChain}
-          canOperate={can(currentUser, PERMISSIONS.ATTACK_CHAIN_REBUILD)}
-          canEscalate={can(currentUser, PERMISSIONS.INCIDENT_ESCALATE)}
-        />
+        <CollapsibleModule {...moduleProps("attack-chain-intelligence", "Attack Chain Intelligence", "Risk-ranked multi-stage intrusion candidates.", [
+          moduleBadge("chains", attackChains.chains?.length ?? 0),
+          moduleBadge("critical/high", (attackChains.chains ?? []).filter((chain) => ["critical", "high"].includes(chain.classification)).length, "warning"),
+        ])}>
+          <AttackChainIntelligencePanel
+            chains={attackChains}
+            campaigns={campaigns}
+            selectedChainId={selectedAttackChainId}
+            timeline={attackChainTimeline}
+            state={attackChainState}
+            timelineState={attackChainTimelineState}
+            error={attackChainError}
+            rebuildResult={attackChainRebuildResult}
+            escalationResult={attackChainEscalationResult}
+            escalationState={attackChainEscalationState}
+            onRebuild={handleRebuildAttackChains}
+            onSelectChain={(chainId) => {
+              setSelectedAttackChainId(chainId);
+              setAttackChainEscalationResult(null);
+            }}
+            onEscalateChain={handleEscalateSelectedAttackChain}
+            canOperate={can(currentUser, PERMISSIONS.ATTACK_CHAIN_REBUILD)}
+            canEscalate={can(currentUser, PERMISSIONS.INCIDENT_ESCALATE)}
+          />
+        </CollapsibleModule>
       )}
 
       {status === "ready" && (
-        <GraphInvestigationPanel
-          graphData={graphData}
-          graphStatus={graphStatus}
-          graphError={graphError}
-          graphFilters={graphFilters}
-          graphControls={graphControls}
-          selectedNode={selectedGraphNode}
-          hoveredNodeId={hoveredGraphNodeId}
-          expandedClusterIds={expandedGraphClusters}
-          zoom={graphZoom}
-          onFilterChange={handleGraphFilterChange}
-          onControlChange={handleGraphControlChange}
-          onRefresh={loadGraph}
-          onNodeSelect={setSelectedGraphNode}
-          onNodeHover={setHoveredGraphNodeId}
-          onToggleCluster={handleToggleGraphCluster}
-          onAnalyzeNode={handleAnalyzeGraphNode}
-          onZoomChange={setGraphZoom}
-          canOperate={canOperate}
-        />
+        <CollapsibleModule {...moduleProps("graph", "Graph Investigation", "Visualize investigation relationships and clusters.", [
+          moduleBadge("nodes", graphData?.summary?.nodes ?? 0),
+          moduleBadge("edges", graphData?.summary?.edges ?? graphData?.edges?.length ?? 0),
+          moduleBadge("selected", selectedGraphNode ? "yes" : "none", selectedGraphNode ? "warning" : "info"),
+        ])}>
+          <GraphInvestigationPanel
+            graphData={graphData}
+            graphStatus={graphStatus}
+            graphError={graphError}
+            graphFilters={graphFilters}
+            graphControls={graphControls}
+            selectedNode={selectedGraphNode}
+            hoveredNodeId={hoveredGraphNodeId}
+            expandedClusterIds={expandedGraphClusters}
+            zoom={graphZoom}
+            onFilterChange={handleGraphFilterChange}
+            onControlChange={handleGraphControlChange}
+            onRefresh={loadGraph}
+            onNodeSelect={setSelectedGraphNode}
+            onNodeHover={setHoveredGraphNodeId}
+            onToggleCluster={handleToggleGraphCluster}
+            onAnalyzeNode={handleAnalyzeGraphNode}
+            onZoomChange={setGraphZoom}
+            canOperate={canOperate}
+          />
+        </CollapsibleModule>
       )}
 
       {status === "ready" && (
-        <CopilotPanel
-          alerts={data.alerts}
-          incidents={data.incidents}
-          chains={correlationResult?.chains ?? []}
-          selectedNode={selectedGraphNode}
-          copilotMode={copilotMode}
-          copilotTargetId={copilotTargetId}
-          copilotState={copilotState}
-          copilotResult={copilotResult}
-          copilotError={copilotError}
-          onModeChange={(mode) => {
-            setCopilotMode(mode);
-            setCopilotTargetId("");
-            setCopilotError("");
-          }}
-          onTargetChange={setCopilotTargetId}
-          onAnalyze={handleRunCopilotAnalysis}
-          canOperate={canOperate}
-        />
+        <CollapsibleModule {...moduleProps("copilot", "AI Analyst Copilot", "Deterministic analyst reasoning and notes.", [
+          moduleBadge("mode", copilotMode),
+          moduleBadge("state", copilotState),
+        ])}>
+          <CopilotPanel
+            alerts={data.alerts}
+            incidents={data.incidents}
+            chains={correlationResult?.chains ?? []}
+            selectedNode={selectedGraphNode}
+            copilotMode={copilotMode}
+            copilotTargetId={copilotTargetId}
+            copilotState={copilotState}
+            copilotResult={copilotResult}
+            copilotError={copilotError}
+            onModeChange={(mode) => {
+              setCopilotMode(mode);
+              setCopilotTargetId("");
+              setCopilotError("");
+            }}
+            onTargetChange={setCopilotTargetId}
+            onAnalyze={handleRunCopilotAnalysis}
+            canOperate={canOperate}
+          />
+        </CollapsibleModule>
       )}
 
       {status === "ready" && (
-        <CaseManagementPanel
-          incidents={data.incidents}
-          selectedCaseId={selectedCaseId}
-          caseDetails={caseDetails}
-          activeTab={activeCaseTab}
-          caseForm={caseForm}
-          noteForm={noteForm}
-          evidenceForm={evidenceForm}
-          notes={caseNotes}
-          evidence={caseEvidence}
-          report={caseReport}
-          copilot={caseCopilot}
-          workspace={caseWorkspace}
-          state={caseState}
-          error={caseError}
-          onSelectCase={(incidentId) => {
-            setSelectedCaseId(incidentId);
-            setCaseReport(null);
-            setCaseCopilot(null);
-            setCaseWorkspace(null);
-          }}
-          onTabChange={setActiveCaseTab}
-          onCaseFieldChange={handleCaseFieldChange}
-          onNoteFieldChange={handleNoteFieldChange}
-          onEvidenceFieldChange={handleEvidenceFieldChange}
-          onUpdateCase={handleUpdateCase}
-          onAddNote={handleAddCaseNote}
-          onAddEvidence={handleAddCaseEvidence}
-          onGenerateReport={handleGenerateCaseReport}
-          onDownloadJson={handleDownloadCaseJson}
-          onOpenHtml={handleOpenCaseHtml}
-          onGenerateCopilot={handleGenerateCaseCopilot}
-          onCreateWorkspaceChecklist={handleCreateWorkspaceChecklist}
-          canOperate={can(currentUser, PERMISSIONS.CASE_MANAGE)}
-        />
+        <CollapsibleModule {...moduleProps("cases", "Case Management", "Incident assignment, workspace, notes, evidence, and reports.", [
+          moduleBadge("cases", data.incidents.length, data.incidents.length > 0 ? "warning" : "info"),
+          moduleBadge("selected", selectedCaseId || "none"),
+        ])}>
+          <CaseManagementPanel
+            incidents={data.incidents}
+            selectedCaseId={selectedCaseId}
+            caseDetails={caseDetails}
+            activeTab={activeCaseTab}
+            caseForm={caseForm}
+            noteForm={noteForm}
+            evidenceForm={evidenceForm}
+            notes={caseNotes}
+            evidence={caseEvidence}
+            report={caseReport}
+            copilot={caseCopilot}
+            workspace={caseWorkspace}
+            state={caseState}
+            error={caseError}
+            onSelectCase={(incidentId) => {
+              setSelectedCaseId(incidentId);
+              setCaseReport(null);
+              setCaseCopilot(null);
+              setCaseWorkspace(null);
+            }}
+            onTabChange={setActiveCaseTab}
+            onCaseFieldChange={handleCaseFieldChange}
+            onNoteFieldChange={handleNoteFieldChange}
+            onEvidenceFieldChange={handleEvidenceFieldChange}
+            onUpdateCase={handleUpdateCase}
+            onAddNote={handleAddCaseNote}
+            onAddEvidence={handleAddCaseEvidence}
+            onGenerateReport={handleGenerateCaseReport}
+            onDownloadJson={handleDownloadCaseJson}
+            onOpenHtml={handleOpenCaseHtml}
+            onGenerateCopilot={handleGenerateCaseCopilot}
+            onCreateWorkspaceChecklist={handleCreateWorkspaceChecklist}
+            canOperate={can(currentUser, PERMISSIONS.CASE_MANAGE)}
+          />
+        </CollapsibleModule>
       )}
 
       {status === "ready" && isAdmin && (
-        <AdminUserManagementPanel
-          users={adminUsers}
-          selectedUserId={selectedAdminUserId}
-          userDetail={adminUserDetail}
-          adminForm={adminForm}
-          adminRole={adminRole}
-          state={adminState}
-          error={adminError}
-          currentUser={currentUser}
-          isSuperAdmin={isSuperAdmin}
-          onSelectUser={(userId) => {
-            setSelectedAdminUserId(userId);
-            setAdminUserDetail(null);
-          }}
-          onFormChange={handleAdminFormChange}
-          onRoleChange={setAdminRole}
-          onUpdateUser={handleAdminUpdateUser}
-          onChangeRole={handleAdminChangeRole}
-          onActivate={handleAdminActivateUser}
-          onDeactivate={handleAdminDeactivateUser}
-          onDisapprove={handleAdminDisapproveUser}
-          onDelete={handleAdminDeleteUser}
-          onRefresh={loadAdminUsers}
-        />
+        <CollapsibleModule {...moduleProps("admin-users", "Admin User Management", "Govern SOC user roles, approvals, and account status.", [
+          moduleBadge("users", adminUsers.length),
+          moduleBadge("role", currentEffectiveRole),
+        ])}>
+          <AdminUserManagementPanel
+            users={adminUsers}
+            selectedUserId={selectedAdminUserId}
+            userDetail={adminUserDetail}
+            adminForm={adminForm}
+            adminRole={adminRole}
+            state={adminState}
+            error={adminError}
+            currentUser={currentUser}
+            isSuperAdmin={isSuperAdmin}
+            onSelectUser={(userId) => {
+              setSelectedAdminUserId(userId);
+              setAdminUserDetail(null);
+            }}
+            onFormChange={handleAdminFormChange}
+            onRoleChange={setAdminRole}
+            onUpdateUser={handleAdminUpdateUser}
+            onChangeRole={handleAdminChangeRole}
+            onActivate={handleAdminActivateUser}
+            onDeactivate={handleAdminDeactivateUser}
+            onDisapprove={handleAdminDisapproveUser}
+            onDelete={handleAdminDeleteUser}
+            onRefresh={loadAdminUsers}
+          />
+        </CollapsibleModule>
       )}
 
       {status === "ready" && canReadAudit && (
-        <AuditCompliancePanel
-          logs={auditLogs}
-          summary={auditSummary}
-          filters={auditFilters}
-          state={auditState}
-          error={auditError}
-          onFilterChange={handleAuditFilterChange}
-          onRefresh={() => loadAuditLogs()}
-        />
+        <CollapsibleModule {...moduleProps("audit", "Audit & Compliance", "Trace sensitive SOC and governance actions.", [
+          moduleBadge("events", auditSummary?.total ?? auditLogs.length),
+          moduleBadge("failures", auditSummary?.failures ?? 0, (auditSummary?.failures ?? 0) > 0 ? "warning" : "info"),
+        ])}>
+          <AuditCompliancePanel
+            logs={auditLogs}
+            summary={auditSummary}
+            filters={auditFilters}
+            state={auditState}
+            error={auditError}
+            onFilterChange={handleAuditFilterChange}
+            onRefresh={() => loadAuditLogs()}
+          />
+        </CollapsibleModule>
       )}
 
       {status === "ready" && currentUser && (
-        <SessionSecurityPanel
-          sessions={sessions}
-          attempts={loginAttempts}
-          state={sessionState}
-          error={sessionError}
-          canViewAll={canReadAudit}
-          onRefresh={loadSessionSecurity}
-          onRevoke={handleRevokeSession}
-          onLogoutAll={handleLogoutAll}
-        />
+        <CollapsibleModule {...moduleProps("sessions", "Session Security", "Review active sessions and login attempts.", [
+          moduleBadge("sessions", sessions.length),
+          moduleBadge("attempts", loginAttempts.length),
+        ])}>
+          <SessionSecurityPanel
+            sessions={sessions}
+            attempts={loginAttempts}
+            state={sessionState}
+            error={sessionError}
+            canViewAll={canReadAudit}
+            onRefresh={loadSessionSecurity}
+            onRevoke={handleRevokeSession}
+            onLogoutAll={handleLogoutAll}
+          />
+        </CollapsibleModule>
       )}
 
       {status === "ready" && canReadAudit && (
-        <NotificationStatusPanel
-          summary={notificationSummary}
-          logs={notificationLogs}
-          state={notificationState}
-          error={notificationError}
-          onRefresh={loadNotifications}
-          onTest={handleTestNotification}
-        />
+        <CollapsibleModule {...moduleProps("notifications", "Notification Integrations", "Outbound SOC notification status and delivery logs.", [
+          moduleBadge("status", notificationSummary?.notifications_enabled ? "enabled" : "disabled"),
+          moduleBadge("failures", notificationSummary?.failures ?? 0, (notificationSummary?.failures ?? 0) > 0 ? "warning" : "info"),
+        ])}>
+          <NotificationStatusPanel
+            summary={notificationSummary}
+            logs={notificationLogs}
+            state={notificationState}
+            error={notificationError}
+            onRefresh={loadNotifications}
+            onTest={handleTestNotification}
+          />
+        </CollapsibleModule>
       )}
 
       {status === "ready" && currentUser && (
-        <CollectorManagementPanel
-          collectors={collectors}
-          healthSummary={collectorHealthSummary}
-          fleetSummary={collectorFleetSummary}
-          form={collectorForm}
-          state={collectorState}
-          error={collectorError}
-          oneTimeKey={collectorOneTimeKey}
-          keyCopied={collectorKeyCopied}
-          updatedCollectorIds={updatedCollectorIds}
-          onFieldChange={handleCollectorFieldChange}
-          onCreate={handleCreateCollector}
-          onRotate={handleRotateCollector}
-          onRevoke={handleRevokeCollector}
-          onRefresh={loadCollectors}
-          onCopyKey={handleCopyCollectorKey}
-          onDismissKey={handleDismissCollectorKey}
-          canCreate={canCreateCollectors}
-          canAdmin={canManageCollectors}
-        />
+        <CollapsibleModule {...moduleProps("collectors", "Live Collectors", "Monitor collector health, keys, versions, and local-control guidance.", [
+          moduleBadge("online", collectorHealthSummary.online ?? 0),
+          moduleBadge("offline", collectorHealthSummary.offline ?? 0, (collectorHealthSummary.offline ?? 0) > 0 ? "warning" : "info"),
+        ])}>
+          <CollectorManagementPanel
+            collectors={collectors}
+            healthSummary={collectorHealthSummary}
+            fleetSummary={collectorFleetSummary}
+            form={collectorForm}
+            state={collectorState}
+            error={collectorError}
+            oneTimeKey={collectorOneTimeKey}
+            keyCopied={collectorKeyCopied}
+            updatedCollectorIds={updatedCollectorIds}
+            onFieldChange={handleCollectorFieldChange}
+            onCreate={handleCreateCollector}
+            onRotate={handleRotateCollector}
+            onRevoke={handleRevokeCollector}
+            onRefresh={loadCollectors}
+            onCopyKey={handleCopyCollectorKey}
+            onDismissKey={handleDismissCollectorKey}
+            canCreate={canCreateCollectors}
+            canAdmin={canManageCollectors}
+          />
+        </CollapsibleModule>
       )}
 
       {status === "ready" && totalRecords === 0 && (
@@ -4940,21 +5295,42 @@ export default function Dashboard() {
       {status === "ready" && (
         <div className="dashboard-grid">
           {sections.map((section) => (
-            <DataSection key={section.key} section={section} items={data[section.key]} />
+            <CollapsibleModule
+              key={section.key}
+              {...moduleProps(section.key, section.title, section.key === "events" ? "Compact recent telemetry cards." : "Tracked SOC assets.", [
+                moduleBadge("count", data[section.key].length),
+              ])}
+            >
+              <DataSection section={section} items={data[section.key]} />
+            </CollapsibleModule>
           ))}
-          <AlertSection
-            alerts={data.alerts}
-            onStatusChange={handleAlertStatusChange}
-            updatingKey={updatingKey}
-            canOperate={canOperate}
-          />
-          <IncidentSection
-            incidents={data.incidents}
-            onStatusChange={handleIncidentStatusChange}
-            updatingKey={updatingKey}
-            canOperate={canOperate}
-          />
-          <ActivitySection activity={data.activity} />
+          <CollapsibleModule {...moduleProps("alerts", "Alerts", "Recent detection alerts and compact action controls.", [
+            moduleBadge("count", data.alerts.length),
+            moduleBadge("critical", data.alerts.filter((alert) => alert.severity === "critical").length, "warning"),
+          ])}>
+            <AlertSection
+              alerts={data.alerts}
+              onStatusChange={handleAlertStatusChange}
+              updatingKey={updatingKey}
+              canOperate={canOperate}
+            />
+          </CollapsibleModule>
+          <CollapsibleModule {...moduleProps("incidents", "Incidents", "Open incident workflow records.", [
+            moduleBadge("count", data.incidents.length, data.incidents.length > 0 ? "warning" : "info"),
+          ])}>
+            <IncidentSection
+              incidents={data.incidents}
+              onStatusChange={handleIncidentStatusChange}
+              updatingKey={updatingKey}
+              canOperate={canOperate}
+            />
+          </CollapsibleModule>
+          <CollapsibleModule {...moduleProps("activity", "Activity Timeline", "Aggregated recent SOC activity.", [
+            moduleBadge("raw", data.activity.length),
+            moduleBadge("shown", aggregateActivityTimeline(data.activity).slice(0, 8).length),
+          ])}>
+            <ActivitySection activity={data.activity} />
+          </CollapsibleModule>
         </div>
       )}
     </main>

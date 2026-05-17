@@ -170,6 +170,178 @@ body {
   margin: 8px 0 0;
 }
 
+.system-health-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.system-health-strip div,
+.global-search-panel,
+.module-shell {
+  border: 1px solid #203047;
+  border-radius: 8px;
+  background: #0f1a2b;
+}
+
+.system-health-strip div {
+  padding: 10px 12px;
+}
+
+.system-health-strip span,
+.global-search-panel span {
+  color: #93a4b8;
+  display: block;
+  font-size: 12px;
+}
+
+.system-health-strip strong {
+  color: #e5edf6;
+  display: block;
+  font-size: 15px;
+  margin-top: 4px;
+  text-transform: capitalize;
+}
+
+.system-health-strip small {
+  color: #fde68a;
+  display: block;
+  font-size: 11px;
+  margin-top: 3px;
+}
+
+.global-search-panel {
+  align-items: end;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(240px, 1fr) auto;
+  margin-top: 12px;
+  padding: 12px;
+  position: relative;
+}
+
+.global-search-panel input {
+  border: 1px solid #2e425f;
+  border-radius: 6px;
+  background: #0b1220;
+  color: #e5edf6;
+  font: inherit;
+  margin-top: 6px;
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.global-search-panel button,
+.module-open-bar button,
+.module-summary {
+  border: 1px solid #2e425f;
+  border-radius: 6px;
+  background: #14233a;
+  color: #e5edf6;
+  cursor: pointer;
+  font: inherit;
+  padding: 9px 12px;
+}
+
+.global-search-results {
+  background: #0b1424;
+  border: 1px solid #203047;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  grid-column: 1 / -1;
+  max-height: 280px;
+  overflow: auto;
+  padding: 10px;
+}
+
+.global-search-results div {
+  border-bottom: 1px solid #17243a;
+  padding: 8px 0;
+}
+
+.global-search-results div:last-child {
+  border-bottom: 0;
+}
+
+.global-search-results strong {
+  display: block;
+}
+
+.global-search-results p {
+  color: #93a4b8;
+  margin: 4px 0 0;
+}
+
+.module-shell {
+  margin-top: 16px;
+  padding: 0;
+}
+
+.module-open-bar {
+  align-items: center;
+  border-bottom: 1px solid #17243a;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 8px 10px;
+}
+
+.module-summary {
+  align-items: center;
+  background: #101c2f;
+  border: 0;
+  display: flex;
+  justify-content: space-between;
+  min-height: 78px;
+  text-align: left;
+  width: 100%;
+}
+
+.module-summary h2 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.module-summary p {
+  color: #93a4b8;
+  margin: 6px 0 0;
+}
+
+.module-badges {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.module-badge,
+.module-toggle {
+  border: 1px solid #2e425f;
+  border-radius: 999px;
+  color: #cbd5e1;
+  font-size: 12px;
+  padding: 4px 9px;
+}
+
+.module-warning {
+  background: #3d2b0d;
+  border-color: #a16207;
+  color: #fde68a;
+}
+
+.module-toggle {
+  border-color: #38bdf8;
+  color: #7dd3fc;
+  font-weight: 700;
+}
+
+.module-shell > section {
+  margin-top: 0;
+}
+
 .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -782,6 +954,61 @@ body {
 .action-row button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+
+.compact-action-row {
+  margin-top: 10px;
+}
+
+.compact-action-row label {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+}
+
+.compact-action-row span {
+  color: #93a4b8;
+  font-size: 12px;
+}
+
+.compact-action-row select,
+.admin-tab-row button,
+.inline-detail-button {
+  border: 1px solid #2e425f;
+  border-radius: 6px;
+  background: #0b1220;
+  color: #e5edf6;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+}
+
+.compact-event-card {
+  background: #0d1728;
+  border: 1px solid #17243a;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.compact-event-card .severity {
+  font-size: 11px;
+}
+
+.inline-detail-button {
+  margin-top: 9px;
+}
+
+.expanded-event-message {
+  border-left: 2px solid #38bdf8;
+  padding-left: 10px;
+}
+
+.activity-aggregated {
+  background: #0d1728;
+  border: 1px solid #203047;
+  border-radius: 8px;
+  padding: 10px;
 }
 
 .activity-section {
