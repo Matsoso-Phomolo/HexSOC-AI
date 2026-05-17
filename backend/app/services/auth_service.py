@@ -15,6 +15,8 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db import models
 from app.db.database import get_db_session
+from app.services.audit_log_service import log_failure
+from app.services.session_security_service import SessionRejected, validate_session
 
 
 ALLOWED_ROLES = {"admin", "analyst", "viewer"}
@@ -50,9 +52,10 @@ def verify_password(password: str, hashed_password: str) -> bool:
         return False
 
 
-def create_access_token(user: models.User, expires_minutes: int = 480) -> str:
+def create_access_token(user: models.User, *, token_jti: str | None = None, expires_minutes: int | None = None) -> str:
     """Create a signed HMAC JWT for an authenticated user."""
     now = datetime.now(timezone.utc)
+    expires_minutes = expires_minutes or settings.access_token_expire_minutes
     payload = {
         "sub": str(user.id),
         "username": user.username,
@@ -60,6 +63,8 @@ def create_access_token(user: models.User, expires_minutes: int = 480) -> str:
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(minutes=expires_minutes)).timestamp()),
     }
+    if token_jti:
+        payload["jti"] = token_jti
     header = {"alg": settings.jwt_algorithm, "typ": "JWT"}
     signing_input = f"{_json_b64(header)}.{_json_b64(payload)}"
     signature = _sign(signing_input)
@@ -97,6 +102,22 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     payload = decode_access_token(authorization.split(" ", 1)[1])
+    try:
+        validate_session(db, payload.get("jti"))
+    except SessionRejected as exc:
+        log_failure(
+            db,
+            action="token_rejected",
+            category="auth",
+            actor_user_id=int(payload["sub"]) if str(payload.get("sub", "")).isdigit() else None,
+            actor_username=payload.get("username"),
+            actor_role=payload.get("role"),
+            target_type="session",
+            target_id=payload.get("jti"),
+            metadata={"reason": str(exc)},
+        )
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
     user = db.get(models.User, int(payload["sub"]))
     if user is None or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Inactive or missing user")

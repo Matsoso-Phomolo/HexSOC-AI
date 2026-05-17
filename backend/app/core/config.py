@@ -19,6 +19,10 @@ class Settings(BaseModel):
     kafka_bootstrap_servers: str = "localhost:9092"
     jwt_secret_key: str = "change-me"
     jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 480
+    session_idle_timeout_minutes: int = 120
+    max_failed_login_attempts: int = 5
+    account_lockout_minutes: int = 15
     demo_seed_token: str | None = None
     abuseipdb_api_key: str | None = None
     virustotal_api_key: str | None = None
@@ -62,6 +66,10 @@ def load_settings() -> Settings:
         kafka_bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"),
         jwt_secret_key=os.getenv("JWT_SECRET_KEY", "change-me"),
         jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
+        access_token_expire_minutes=int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480")),
+        session_idle_timeout_minutes=int(os.getenv("SESSION_IDLE_TIMEOUT_MINUTES", "120")),
+        max_failed_login_attempts=int(os.getenv("MAX_FAILED_LOGIN_ATTEMPTS", "5")),
+        account_lockout_minutes=int(os.getenv("ACCOUNT_LOCKOUT_MINUTES", "15")),
         demo_seed_token=os.getenv("DEMO_SEED_TOKEN"),
         abuseipdb_api_key=os.getenv("ABUSEIPDB_API_KEY"),
         virustotal_api_key=os.getenv("VIRUSTOTAL_API_KEY"),

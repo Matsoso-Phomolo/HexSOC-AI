@@ -139,6 +139,38 @@ class LoginAudit(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class LoginAttempt(Base):
+    """Bounded login-attempt record for lockout and access governance."""
+
+    __tablename__ = "login_attempts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email_or_username = Column(String(120), nullable=False, index=True)
+    ip_address = Column(String(64), nullable=True, index=True)
+    user_agent = Column(String(500), nullable=True)
+    outcome = Column(String(40), nullable=False, default="failure", index=True)
+    reason = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class UserSession(Base):
+    """Server-side session record tied to JWT jti for revocation and visibility."""
+
+    __tablename__ = "user_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    token_jti = Column(String(120), nullable=False, unique=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_seen_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    revoked_reason = Column(String(255), nullable=True)
+    ip_address = Column(String(64), nullable=True)
+    user_agent = Column(String(500), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True, index=True)
+
+
 class AuditLog(Base):
     """Enterprise audit record for sensitive SOC and governance actions."""
 

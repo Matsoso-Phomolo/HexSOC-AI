@@ -2246,6 +2246,118 @@ function AuditCompliancePanel({
   );
 }
 
+function SessionSecurityPanel({
+  sessions,
+  attempts,
+  state,
+  error,
+  canViewAll,
+  onRefresh,
+  onRevoke,
+  onLogoutAll,
+}) {
+  const activeCount = sessions.filter((session) => session.is_active).length;
+  const suspiciousCount = sessions.filter((session) => session.suspicious).length;
+  const failedCount = attempts.filter((attempt) => ["failure", "blocked", "locked"].includes(attempt.outcome)).length;
+
+  return (
+    <section className="session-panel">
+      <div className="section-heading">
+        <div>
+          <h2>Session Security</h2>
+          <p>Monitor active access, failed login activity, and revoke sessions when needed.</p>
+        </div>
+        <div className="session-actions">
+          <button type="button" disabled={state === "loading"} onClick={onRefresh}>
+            {state === "loading" ? "Refreshing..." : "Refresh Sessions"}
+          </button>
+          <button type="button" disabled={state === "loading"} onClick={onLogoutAll}>
+            Logout all
+          </button>
+        </div>
+      </div>
+
+      {error && <span className="form-error">{error}</span>}
+
+      <div className="audit-summary-grid">
+        <div>
+          <span>Active sessions</span>
+          <strong>{activeCount}</strong>
+        </div>
+        <div>
+          <span>Suspicious</span>
+          <strong>{suspiciousCount}</strong>
+        </div>
+        <div>
+          <span>Failed attempts</span>
+          <strong>{failedCount}</strong>
+        </div>
+        <div>
+          <span>Scope</span>
+          <strong>{canViewAll ? "governance" : "own access"}</strong>
+        </div>
+      </div>
+
+      <div className="session-grid">
+        <div>
+          <h3>Active Sessions</h3>
+          {sessions.length === 0 ? (
+            <p className="empty-state">No session records yet.</p>
+          ) : (
+            <ul className="audit-list">
+              {sessions.slice(0, 8).map((session) => (
+                <li key={session.session_id} className={session.is_active ? "" : "audit-failure"}>
+                  <div className="record-title-row">
+                    <strong>{session.ip_address ?? "unknown IP"}</strong>
+                    <span className={`account-pill ${session.is_active ? "account-active" : "account-inactive"}`}>
+                      {session.is_active ? "active" : "revoked"}
+                    </span>
+                  </div>
+                  <p>{session.user_agent ?? "No user-agent"}</p>
+                  <div className="activity-meta">
+                    <span>Last active {formatDateTime(session.last_seen_at)}</span>
+                    <span>Expires {formatDateTime(session.expires_at)}</span>
+                    {session.suspicious && <span>suspicious</span>}
+                  </div>
+                  {session.is_active && (
+                    <button type="button" onClick={() => onRevoke(session.session_id)}>
+                      Revoke session
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div>
+          <h3>Login Attempts</h3>
+          {attempts.length === 0 ? (
+            <p className="empty-state">No login attempts recorded yet.</p>
+          ) : (
+            <ul className="audit-list">
+              {attempts.slice(0, 8).map((attempt) => (
+                <li key={attempt.id} className={attempt.outcome === "success" ? "" : "audit-failure"}>
+                  <div className="record-title-row">
+                    <strong>{attempt.email_or_username}</strong>
+                    <span className={`account-pill ${attempt.outcome === "success" ? "account-active" : "account-inactive"}`}>
+                      {attempt.outcome}
+                    </span>
+                  </div>
+                  <p>{attempt.reason ?? "No reason"} | {attempt.ip_address ?? "unknown IP"}</p>
+                  <div className="activity-meta">
+                    <span>{formatDateTime(attempt.created_at)}</span>
+                    <span>{attempt.user_agent ?? "No user-agent"}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function CollectorManagementPanel({
   collectors,
   healthSummary,
@@ -3018,6 +3130,10 @@ export default function Dashboard() {
   const [auditState, setAuditState] = useState("idle");
   const [auditError, setAuditError] = useState("");
   const [auditFilters, setAuditFilters] = useState({ category: "", outcome: "" });
+  const [sessions, setSessions] = useState([]);
+  const [loginAttempts, setLoginAttempts] = useState([]);
+  const [sessionState, setSessionState] = useState("idle");
+  const [sessionError, setSessionError] = useState("");
   const [collectors, setCollectors] = useState([]);
   const [collectorHealthSummary, setCollectorHealthSummary] = useState({
     total_collectors: 0,
@@ -3162,6 +3278,12 @@ export default function Dashboard() {
       setAuditLogs([]);
       setAuditSummary(null);
     }
+    if (currentUser) {
+      loadSessionSecurity();
+    } else {
+      setSessions([]);
+      setLoginAttempts([]);
+    }
     if (!currentUser) {
       setCollectors([]);
       setCollectorHealthSummary({ total_collectors: 0, online: 0, degraded: 0, stale: 0, offline: 0, revoked: 0 });
@@ -3293,6 +3415,48 @@ export default function Dashboard() {
     const nextFilters = { ...auditFilters, [name]: value };
     setAuditFilters(nextFilters);
     loadAuditLogs(nextFilters);
+  }
+
+  async function loadSessionSecurity() {
+    if (!currentUser) return;
+    try {
+      setSessionState("loading");
+      setSessionError("");
+      const governanceScope = canReadAudit ? "?all_users=true&limit=50" : "?limit=50";
+      const [sessionResult, attemptResult] = await Promise.all([
+        apiGet(`/api/auth/sessions${governanceScope}`),
+        apiGet(`/api/auth/login-attempts${governanceScope}`),
+      ]);
+      setSessions(Array.isArray(sessionResult) ? sessionResult : []);
+      setLoginAttempts(Array.isArray(attemptResult) ? attemptResult : []);
+      setSessionState("ready");
+    } catch (requestError) {
+      setSessionError(requestError.message);
+      setSessionState("error");
+    }
+  }
+
+  async function handleRevokeSession(sessionId) {
+    try {
+      setSessionState("loading");
+      await apiPost(`/api/auth/sessions/revoke/${encodeURIComponent(sessionId)}`, {});
+      await loadSessionSecurity();
+    } catch (requestError) {
+      setSessionError(requestError.message);
+      setSessionState("error");
+    }
+  }
+
+  async function handleLogoutAll() {
+    try {
+      setSessionState("loading");
+      await apiPost("/api/auth/logout-all", {});
+    } finally {
+      clearStoredToken();
+      setCurrentUser(null);
+      setAuthState("anonymous");
+      setStatus("idle");
+    }
   }
 
   async function loadCollectors() {
@@ -4609,6 +4773,19 @@ export default function Dashboard() {
           error={auditError}
           onFilterChange={handleAuditFilterChange}
           onRefresh={() => loadAuditLogs()}
+        />
+      )}
+
+      {status === "ready" && currentUser && (
+        <SessionSecurityPanel
+          sessions={sessions}
+          attempts={loginAttempts}
+          state={sessionState}
+          error={sessionError}
+          canViewAll={canReadAudit}
+          onRefresh={loadSessionSecurity}
+          onRevoke={handleRevokeSession}
+          onLogoutAll={handleLogoutAll}
         />
       )}
 

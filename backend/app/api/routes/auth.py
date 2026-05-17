@@ -3,7 +3,7 @@
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.db import models
 from app.db.database import sync_phase2_schema
-from app.schemas.auth import CurrentUser, LoginRequest, TokenResponse, UserCreate, UserRead
+from app.schemas.auth import CurrentUser, LoginAttemptRead, LoginRequest, TokenResponse, UserCreate, UserRead, UserSessionRead
+from app.security.permissions import Permission, has_permission
 from app.services.auth_service import (
     APPROVAL_REQUIRED_ROLES,
     PENDING_PRIVILEGED_APPROVAL_REASON,
@@ -21,8 +22,22 @@ from app.services.auth_service import (
     hash_password,
     normalize_role,
     verify_password,
+    decode_access_token,
 )
 from app.services.audit_log_service import log_failure, log_success
+from app.services.session_security_service import (
+    BLOCKED,
+    FAILURE,
+    LOCKED_OUT,
+    SUCCESS,
+    create_user_session,
+    is_identity_locked,
+    login_attempt_to_dict,
+    record_login_attempt,
+    revoke_session,
+    revoke_user_sessions,
+    session_to_dict,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -124,7 +139,25 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
             detail="Authentication database is unavailable.",
         ) from exc
 
+    if is_identity_locked(db, username, request=request):
+        record_login_attempt(db, username=username, request=request, outcome=LOCKED_OUT, reason="temporary_lockout")
+        _record_login_audit(db, request, user=user, username=username, success=False, reason="temporary_lockout")
+        log_failure(
+            db,
+            action="account_lockout",
+            category="auth",
+            actor=user,
+            request=request,
+            target_type="user",
+            target_id=user.id if user else None,
+            target_label=username,
+            metadata={"reason": "too_many_failed_login_attempts"},
+        )
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many failed login attempts. Try again later.")
+
     if user is None or not verify_password(payload.password, user.hashed_password):
+        record_login_attempt(db, username=username, request=request, outcome=FAILURE, reason="invalid_credentials")
         _record_login_audit(db, request, user=None, username=username, success=False, reason="invalid_credentials")
         log_failure(
             db,
@@ -138,6 +171,7 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
         db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     if not user.is_active:
+        record_login_attempt(db, username=username, request=request, outcome=BLOCKED, reason="inactive_account")
         _record_login_audit(db, request, user=user, username=user.username, success=False, reason="inactive_account")
         log_failure(
             db,
@@ -155,10 +189,13 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
     user.last_login_at = datetime.now(timezone.utc)
+    session = create_user_session(db, user, request=request)
+    record_login_attempt(db, username=username, request=request, outcome=SUCCESS, reason="login_success")
     _record_login_audit(db, request, user=user, username=user.username, success=True, reason="login_success")
     db.add(user)
     db.commit()
     db.refresh(user)
+    db.refresh(session)
     log_success(
         db,
         action="login_success",
@@ -168,15 +205,105 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
         target_type="user",
         target_id=user.id,
         target_label=user.username,
+        metadata={"session_id": session.token_jti, "expires_at": session.expires_at},
     )
     db.commit()
-    return TokenResponse(access_token=create_access_token(user), user=user)
+    return TokenResponse(access_token=create_access_token(user, token_jti=session.token_jti), user=user)
 
 
 @router.get("/me", response_model=CurrentUser, summary="Current user")
 def read_me(user: models.User = Depends(get_current_user)) -> models.User:
     """Return the authenticated user."""
     return user
+
+
+@router.get("/sessions", response_model=list[UserSessionRead], summary="List active sessions")
+def list_sessions(
+    all_users: bool = Query(default=False),
+    limit: int = Query(default=50, ge=1, le=500),
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+) -> list[dict]:
+    """Return own sessions, or all sessions for admins with audit visibility."""
+    query = db.query(models.UserSession)
+    if all_users and has_permission(user, Permission.AUDIT_READ):
+        query = query.order_by(models.UserSession.id.desc())
+    else:
+        query = query.filter(models.UserSession.user_id == user.id).order_by(models.UserSession.id.desc())
+    return [session_to_dict(session) for session in query.limit(limit).all()]
+
+
+@router.post("/sessions/revoke/{session_id}", summary="Revoke one session")
+def revoke_auth_session(
+    session_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+) -> dict:
+    """Revoke one session owned by current user, or any session for admins."""
+    session = db.query(models.UserSession).filter(models.UserSession.token_jti == session_id).first()
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session.user_id != user.id and not has_permission(user, Permission.AUDIT_READ):
+        raise HTTPException(status_code=403, detail="Insufficient permission: audit.read required")
+    revoke_session(db, session, reason="manual_revoke")
+    log_success(
+        db,
+        action="session_revoked",
+        category="auth",
+        actor=user,
+        request=request,
+        target_type="session",
+        target_id=session.id,
+        target_label=session.token_jti,
+        metadata={"session_user_id": session.user_id},
+    )
+    db.commit()
+    return {"revoked": True, "session_id": session.token_jti}
+
+
+@router.post("/logout-all", summary="Logout all active sessions")
+def logout_all_sessions(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+) -> dict:
+    """Revoke all active sessions for the current user."""
+    current_jti = _current_jti(authorization)
+    revoked = revoke_user_sessions(db, user.id, reason="logout_all", exclude_jti=None)
+    log_success(
+        db,
+        action="logout_all",
+        category="auth",
+        actor=user,
+        request=request,
+        target_type="user",
+        target_id=user.id,
+        target_label=user.username,
+        metadata={"revoked_sessions": revoked, "current_session": current_jti},
+    )
+    db.commit()
+    return {"revoked_sessions": revoked}
+
+
+@router.get("/login-attempts", response_model=list[LoginAttemptRead], summary="List login attempts")
+def list_login_attempts(
+    all_users: bool = Query(default=False),
+    limit: int = Query(default=50, ge=1, le=500),
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+) -> list[dict]:
+    """Return own login attempts, or broader governance view for admins."""
+    query = db.query(models.LoginAttempt)
+    if all_users and has_permission(user, Permission.AUDIT_READ):
+        query = query.order_by(models.LoginAttempt.id.desc())
+    else:
+        query = (
+            query.filter(or_(models.LoginAttempt.email_or_username == user.username, models.LoginAttempt.email_or_username == user.email))
+            .order_by(models.LoginAttempt.id.desc())
+        )
+    return [login_attempt_to_dict(attempt) for attempt in query.limit(limit).all()]
 
 
 def _find_existing_user(db: Session, email: str, username: str) -> models.User | None:
@@ -225,3 +352,12 @@ def _record_login_audit(
     except SQLAlchemyError:
         db.rollback()
         logger.exception("Login audit write failed for username=%s", username)
+
+
+def _current_jti(authorization: str | None) -> str | None:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        return None
+    try:
+        return decode_access_token(authorization.split(" ", 1)[1]).get("jti")
+    except HTTPException:
+        return None

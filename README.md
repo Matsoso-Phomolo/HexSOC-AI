@@ -49,6 +49,7 @@ Telemetry Sources
 - RBAC authentication with admin, analyst, viewer, and super-admin governance controls
 - Permission-matrix enforcement for viewer, analyst, admin, and super-admin actions
 - Audit and compliance logging for authentication, governance, collector, incident, attack-chain, and threat-intel actions
+- Session governance with active-session visibility, revocation, logout-all, failed-login tracking, and temporary lockout
 - Telemetry ingestion through API-key authenticated collectors
 - Windows/Sysmon-oriented collector prototype with heartbeat, offline queue, retry, and deduplication
 - Collector fleet monitoring with health summaries, stale/offline detection, version visibility, and local-control guidance
@@ -219,6 +220,7 @@ The cloud dashboard intentionally does not start or stop local endpoint agents. 
 - Rotate any key that may have been exposed.
 - Elevated analyst/admin registration, privileged role grants, and user deletion are governed by super-admin controls.
 - Sensitive governance and SOC actions are recorded in bounded audit logs with secret redaction.
+- Access tokens use configurable expiration, and new sessions can be revoked server-side.
 
 ## Public vs Internal Documentation
 

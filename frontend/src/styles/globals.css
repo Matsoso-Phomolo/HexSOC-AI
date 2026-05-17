@@ -1246,7 +1246,8 @@ body {
 }
 
 .admin-panel,
-.audit-panel {
+.audit-panel,
+.session-panel {
   border: 1px solid #203047;
   border-radius: 8px;
   background: #101c2f;
@@ -1263,24 +1264,28 @@ body {
 }
 
 .collector-panel .section-heading,
-.audit-panel .section-heading {
+.audit-panel .section-heading,
+.session-panel .section-heading {
   align-items: flex-start;
 }
 
 .collector-panel h2,
-.audit-panel h2 {
+.audit-panel h2,
+.session-panel h2 {
   margin: 0;
   font-size: 18px;
 }
 
 .collector-panel p,
-.audit-panel p {
+.audit-panel p,
+.session-panel p {
   color: #93a4b8;
   margin: 6px 0 0;
 }
 
 .collector-panel .section-heading button,
 .audit-panel .section-heading button,
+.session-panel button,
 .collector-key-box button {
   border: 1px solid #38bdf8;
   border-radius: 6px;
@@ -1290,6 +1295,20 @@ body {
   font: inherit;
   font-size: 13px;
   padding: 9px 12px;
+}
+
+.session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.session-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  margin-top: 16px;
 }
 
 .audit-summary-grid {
