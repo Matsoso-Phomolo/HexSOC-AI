@@ -171,6 +171,21 @@ class UserSession(Base):
     is_active = Column(Boolean, nullable=False, default=True, index=True)
 
 
+class NotificationLog(Base):
+    """Record outbound notification attempts without exposing provider secrets."""
+
+    __tablename__ = "notification_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_type = Column(String(120), nullable=False, index=True)
+    channel = Column(String(80), nullable=False, index=True)
+    target = Column(String(255), nullable=True)
+    outcome = Column(String(40), nullable=False, default="skipped", index=True)
+    error_message = Column(String(500), nullable=True)
+    notification_metadata = Column("metadata", JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class AuditLog(Base):
     """Enterprise audit record for sensitive SOC and governance actions."""
 

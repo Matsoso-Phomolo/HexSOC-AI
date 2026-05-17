@@ -213,6 +213,7 @@ def sync_phase2_schema() -> None:
         "ALTER TABLE login_audits ADD COLUMN IF NOT EXISTS user_agent VARCHAR(500)",
         "ALTER TABLE login_audits ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL",
         *_session_security_schema_statements(),
+        *_notification_schema_statements(),
         *_audit_schema_statements(),
         "CREATE TABLE IF NOT EXISTS collectors (id SERIAL PRIMARY KEY, name VARCHAR(160) NOT NULL, description TEXT, api_key_hash VARCHAR(128) NOT NULL, key_prefix VARCHAR(32) NOT NULL, collector_type VARCHAR(80) NOT NULL DEFAULT 'custom_json', source_label VARCHAR(120), is_active BOOLEAN NOT NULL DEFAULT true, last_seen_at TIMESTAMP WITH TIME ZONE, agent_version VARCHAR(40), host_name VARCHAR(255), os_name VARCHAR(120), os_version VARCHAR(255), last_event_count INTEGER, last_error TEXT, heartbeat_count INTEGER NOT NULL DEFAULT 0, last_heartbeat_at TIMESTAMP WITH TIME ZONE, health_status VARCHAR(40) NOT NULL DEFAULT 'offline', created_by VARCHAR(120), created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL, revoked_at TIMESTAMP WITH TIME ZONE)",
         "ALTER TABLE collectors ADD COLUMN IF NOT EXISTS name VARCHAR(160)",
@@ -383,6 +384,7 @@ def sync_production_schema() -> None:
         "ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS actor_username VARCHAR(120)",
         "ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS actor_role VARCHAR(40)",
         *_session_security_schema_statements(),
+        *_notification_schema_statements(),
         *_audit_schema_statements(),
         "CREATE TABLE IF NOT EXISTS threat_iocs (id SERIAL PRIMARY KEY, ioc_type VARCHAR(40) NOT NULL, value VARCHAR(1000) NOT NULL, normalized_value VARCHAR(1000) NOT NULL, source VARCHAR(120) NOT NULL, source_reference VARCHAR(500), confidence_score INTEGER NOT NULL DEFAULT 50, risk_score INTEGER NOT NULL DEFAULT 50, severity VARCHAR(40) NOT NULL DEFAULT 'medium', tags JSON, classification VARCHAR(120), description TEXT, first_seen_at TIMESTAMP WITH TIME ZONE, last_seen_at TIMESTAMP WITH TIME ZONE, expires_at TIMESTAMP WITH TIME ZONE, is_active BOOLEAN NOT NULL DEFAULT true, raw_payload JSON, created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL, updated_at TIMESTAMP WITH TIME ZONE)",
         "ALTER TABLE threat_iocs ADD COLUMN IF NOT EXISTS ioc_type VARCHAR(40)",
@@ -517,6 +519,27 @@ def _session_security_schema_statements() -> list[str]:
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_user_sessions_token_jti ON user_sessions (token_jti)",
         "CREATE INDEX IF NOT EXISTS ix_user_sessions_user_active ON user_sessions (user_id, is_active)",
         "CREATE INDEX IF NOT EXISTS ix_user_sessions_expires_at ON user_sessions (expires_at)",
+    ]
+
+
+def _notification_schema_statements() -> list[str]:
+    """Return additive schema statements for notification integrations."""
+    return [
+        "CREATE TABLE IF NOT EXISTS notification_logs (id SERIAL PRIMARY KEY, event_type VARCHAR(120) NOT NULL, channel VARCHAR(80) NOT NULL, target VARCHAR(255), outcome VARCHAR(40) NOT NULL DEFAULT 'skipped', error_message VARCHAR(500), metadata JSON, created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL)",
+        "ALTER TABLE notification_logs ADD COLUMN IF NOT EXISTS event_type VARCHAR(120)",
+        "ALTER TABLE notification_logs ADD COLUMN IF NOT EXISTS channel VARCHAR(80)",
+        "ALTER TABLE notification_logs ADD COLUMN IF NOT EXISTS target VARCHAR(255)",
+        "ALTER TABLE notification_logs ADD COLUMN IF NOT EXISTS outcome VARCHAR(40) DEFAULT 'skipped'",
+        "ALTER TABLE notification_logs ADD COLUMN IF NOT EXISTS error_message VARCHAR(500)",
+        "ALTER TABLE notification_logs ADD COLUMN IF NOT EXISTS metadata JSON",
+        "ALTER TABLE notification_logs ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL",
+        "UPDATE notification_logs SET event_type = 'unknown_event' WHERE event_type IS NULL OR event_type = ''",
+        "UPDATE notification_logs SET channel = 'system' WHERE channel IS NULL OR channel = ''",
+        "UPDATE notification_logs SET outcome = 'skipped' WHERE outcome IS NULL OR outcome = ''",
+        "CREATE INDEX IF NOT EXISTS ix_notification_logs_event_type ON notification_logs (event_type)",
+        "CREATE INDEX IF NOT EXISTS ix_notification_logs_channel ON notification_logs (channel)",
+        "CREATE INDEX IF NOT EXISTS ix_notification_logs_outcome ON notification_logs (outcome)",
+        "CREATE INDEX IF NOT EXISTS ix_notification_logs_created_at ON notification_logs (created_at)",
     ]
 
 

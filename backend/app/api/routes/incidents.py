@@ -18,6 +18,7 @@ from app.services.investigation_recommendation_engine import (
     recommend_for_campaign,
     recommend_for_context,
 )
+from app.services.notification_service import send_notification
 from app.services.websocket_manager import serialize_activity, websocket_manager
 
 router = APIRouter()
@@ -343,6 +344,21 @@ async def _finalize_escalation(db: Session, user: models.User, result: dict, *, 
                 "priority": result.get("priority"),
             },
         )
+        if result.get("escalated"):
+            send_notification(
+                db,
+                event_type="incident_escalated",
+                title="HexSOC AI incident escalated",
+                message=result.get("reason") or "A high-risk intelligence object was escalated to an incident.",
+                severity=severity,
+                metadata={
+                    "incident_id": result.get("incident_id"),
+                    "created": result.get("created"),
+                    "priority": result.get("priority"),
+                    "linked_entity_type": result.get("linked_entity_type"),
+                    "linked_entity_id": result.get("linked_entity_id"),
+                },
+            )
         db.commit()
         await websocket_manager.broadcast_activity({"type": "activity_created", "activity": serialize_activity(activity)})
         await websocket_manager.broadcast_event(

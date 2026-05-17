@@ -35,6 +35,12 @@ class Settings(BaseModel):
     threat_intel_provider_max_lookups_per_request: int = 25
     startup_schema_sync: str = "auto"
     database_connect_timeout_seconds: int = 10
+    notifications_enabled: bool = False
+    notification_webhook_url: str | None = None
+    notification_email_enabled: bool = False
+    notification_email_from: str | None = None
+    notification_email_to: str | None = None
+    notification_rate_limit_seconds: int = 300
 
 
 def _split_csv(value: str) -> list[str]:
@@ -82,6 +88,12 @@ def load_settings() -> Settings:
         threat_intel_provider_max_lookups_per_request=int(os.getenv("THREAT_INTEL_PROVIDER_MAX_LOOKUPS_PER_REQUEST", "25")),
         startup_schema_sync=os.getenv("STARTUP_SCHEMA_SYNC", "auto"),
         database_connect_timeout_seconds=int(os.getenv("DATABASE_CONNECT_TIMEOUT_SECONDS", "10")),
+        notifications_enabled=os.getenv("NOTIFICATIONS_ENABLED", "false").lower() == "true",
+        notification_webhook_url=os.getenv("NOTIFICATION_WEBHOOK_URL") or None,
+        notification_email_enabled=os.getenv("NOTIFICATION_EMAIL_ENABLED", "false").lower() == "true",
+        notification_email_from=os.getenv("NOTIFICATION_EMAIL_FROM") or None,
+        notification_email_to=os.getenv("NOTIFICATION_EMAIL_TO") or None,
+        notification_rate_limit_seconds=int(os.getenv("NOTIFICATION_RATE_LIMIT_SECONDS", "300")),
     )
 
 

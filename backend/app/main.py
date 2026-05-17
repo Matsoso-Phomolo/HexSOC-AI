@@ -22,6 +22,7 @@ from app.api.routes import (
     incidents,
     investigation_recommendations,
     mitre,
+    notifications,
     realtime,
     threat_intel,
     threat_intel_feeds,
@@ -86,6 +87,7 @@ app.include_router(threat_intel.router, prefix=f"{settings.api_prefix}/threat-in
 app.include_router(threat_intel_feeds.router, prefix=f"{settings.api_prefix}/threat-intel", tags=["threat-intel-feeds"])
 app.include_router(graph.router, prefix=f"{settings.api_prefix}/graph", tags=["graph"])
 app.include_router(mitre.router, prefix=f"{settings.api_prefix}/mitre", tags=["mitre"])
+app.include_router(notifications.router, prefix=f"{settings.api_prefix}/notifications", tags=["notifications"])
 app.include_router(ingestion.router, prefix=f"{settings.api_prefix}/ingestion", tags=["ingestion"])
 app.include_router(windows_events.router, prefix=f"{settings.api_prefix}/ingestion", tags=["ingestion"])
 app.include_router(websocket.router, prefix=f"{settings.api_prefix}/ws", tags=["websocket"])

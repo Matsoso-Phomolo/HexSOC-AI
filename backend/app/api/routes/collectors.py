@@ -40,6 +40,7 @@ from app.services.collector_fleet_service import (
 )
 from app.services.detection_engine import run_detection_rules
 from app.services.log_ingestion_service import ingest_logs
+from app.services.notification_service import send_notification
 from app.services.websocket_manager import serialize_activity, serialize_collector, websocket_manager
 from app.services.windows_event_parser import parse_windows_event, parse_windows_events
 
@@ -531,6 +532,21 @@ def _refresh_health_batch(db: Session, collectors: list[models.Collector]) -> No
                 actor_username="system",
                 actor_role="system",
             )
+            if new_status in {"offline", "stale"}:
+                send_notification(
+                    db,
+                    event_type="collector_offline" if new_status == "offline" else "collector_degraded",
+                    title=f"Collector {new_status}: {collector.name}",
+                    message=f"Collector {collector.name} changed health from {old_status} to {new_status}.",
+                    severity="warning",
+                    metadata={
+                        "collector_id": collector.id,
+                        "collector_type": collector.collector_type,
+                        "source_label": collector.source_label,
+                        "previous_status": old_status,
+                        "health_status": new_status,
+                    },
+                )
             db.add(collector)
     if changed:
         db.commit()

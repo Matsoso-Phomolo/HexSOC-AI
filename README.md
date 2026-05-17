@@ -50,6 +50,7 @@ Telemetry Sources
 - Permission-matrix enforcement for viewer, analyst, admin, and super-admin actions
 - Audit and compliance logging for authentication, governance, collector, incident, attack-chain, and threat-intel actions
 - Session governance with active-session visibility, revocation, logout-all, failed-login tracking, and temporary lockout
+- Optional notification integrations for critical SOC events, collector degradation, account lockout, and incident escalation
 - Telemetry ingestion through API-key authenticated collectors
 - Windows/Sysmon-oriented collector prototype with heartbeat, offline queue, retry, and deduplication
 - Collector fleet monitoring with health summaries, stale/offline detection, version visibility, and local-control guidance
@@ -92,6 +93,7 @@ High-level API groups include:
 - Investigation Recommendation APIs
 - Incident Escalation and Workspace APIs
 - Collector Ingestion and Collector Fleet APIs
+- Notification Status and Delivery Log APIs
 
 ## Local Development
 
@@ -141,6 +143,7 @@ Core production configuration should be stored in Render environment settings:
 - Frontend origin and CORS origins
 - JWT signing configuration
 - Optional provider keys for threat intelligence adapters
+- Optional notification webhook and email settings
 - Optional demo-seeding token for controlled demonstration workflows
 
 Production notes:
@@ -221,6 +224,7 @@ The cloud dashboard intentionally does not start or stop local endpoint agents. 
 - Elevated analyst/admin registration, privileged role grants, and user deletion are governed by super-admin controls.
 - Sensitive governance and SOC actions are recorded in bounded audit logs with secret redaction.
 - Access tokens use configurable expiration, and new sessions can be revoked server-side.
+- Notification webhook URLs and email targets must stay in environment settings and are not exposed in the dashboard.
 
 ## Public vs Internal Documentation
 
@@ -241,7 +245,7 @@ Future roadmap:
 
 - Advanced hunting workspace
 - Multi-collector expansion
-- Notification integrations
+- Expanded notification integrations
 - Response automation framework
 - Continuous learning layer
 - Multi-tenant SaaS architecture

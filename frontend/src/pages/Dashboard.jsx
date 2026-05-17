@@ -2358,6 +2358,77 @@ function SessionSecurityPanel({
   );
 }
 
+function NotificationStatusPanel({
+  summary,
+  logs,
+  state,
+  error,
+  onRefresh,
+  onTest,
+}) {
+  return (
+    <section className="notification-panel">
+      <div className="section-heading">
+        <div>
+          <h2>Notification Integrations</h2>
+          <p>Track outbound SOC notifications without exposing webhook or email secrets.</p>
+        </div>
+        <div className="session-actions">
+          <button type="button" disabled={state === "loading"} onClick={onRefresh}>
+            {state === "loading" ? "Refreshing..." : "Refresh Notifications"}
+          </button>
+          <button type="button" disabled={state === "loading"} onClick={onTest}>
+            Send test
+          </button>
+        </div>
+      </div>
+
+      {error && <span className="form-error">{error}</span>}
+
+      <div className="audit-summary-grid">
+        <div>
+          <span>Status</span>
+          <strong>{summary?.notifications_enabled ? "enabled" : "disabled"}</strong>
+        </div>
+        <div>
+          <span>Webhook</span>
+          <strong>{summary?.webhook_configured ? "configured" : "not set"}</strong>
+        </div>
+        <div>
+          <span>Email</span>
+          <strong>{summary?.email_configured ? "configured" : summary?.email_enabled ? "placeholder" : "disabled"}</strong>
+        </div>
+        <div>
+          <span>Failures</span>
+          <strong>{summary?.failures ?? 0}</strong>
+        </div>
+      </div>
+
+      {logs.length === 0 ? (
+        <p className="empty-state">No notification attempts have been recorded yet.</p>
+      ) : (
+        <ul className="audit-list">
+          {logs.slice(0, 10).map((log) => (
+            <li key={log.id} className={log.outcome === "failure" ? "audit-failure" : ""}>
+              <div className="record-title-row">
+                <strong>{log.event_type}</strong>
+                <span className={`account-pill ${log.outcome === "success" ? "account-active" : "account-inactive"}`}>
+                  {log.outcome}
+                </span>
+              </div>
+              <p>{log.channel} | {log.target ?? "no target exposed"}</p>
+              <div className="activity-meta">
+                <span>{formatDateTime(log.created_at)}</span>
+                {log.error_message && <span>{log.error_message}</span>}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function CollectorManagementPanel({
   collectors,
   healthSummary,
@@ -3134,6 +3205,10 @@ export default function Dashboard() {
   const [loginAttempts, setLoginAttempts] = useState([]);
   const [sessionState, setSessionState] = useState("idle");
   const [sessionError, setSessionError] = useState("");
+  const [notificationSummary, setNotificationSummary] = useState(null);
+  const [notificationLogs, setNotificationLogs] = useState([]);
+  const [notificationState, setNotificationState] = useState("idle");
+  const [notificationError, setNotificationError] = useState("");
   const [collectors, setCollectors] = useState([]);
   const [collectorHealthSummary, setCollectorHealthSummary] = useState({
     total_collectors: 0,
@@ -3274,9 +3349,12 @@ export default function Dashboard() {
     }
     if (canReadAudit) {
       loadAuditLogs();
+      loadNotifications();
     } else {
       setAuditLogs([]);
       setAuditSummary(null);
+      setNotificationSummary(null);
+      setNotificationLogs([]);
     }
     if (currentUser) {
       loadSessionSecurity();
@@ -3456,6 +3534,36 @@ export default function Dashboard() {
       setCurrentUser(null);
       setAuthState("anonymous");
       setStatus("idle");
+    }
+  }
+
+  async function loadNotifications() {
+    if (!canReadAudit) return;
+    try {
+      setNotificationState("loading");
+      setNotificationError("");
+      const [summaryResult, logsResult] = await Promise.all([
+        apiGet("/api/notifications/summary"),
+        apiGet("/api/notifications/logs?limit=25"),
+      ]);
+      setNotificationSummary(summaryResult);
+      setNotificationLogs(logsResult.logs ?? []);
+      setNotificationState("ready");
+    } catch (requestError) {
+      setNotificationError(requestError.message);
+      setNotificationState("error");
+    }
+  }
+
+  async function handleTestNotification() {
+    try {
+      setNotificationState("loading");
+      setNotificationError("");
+      await apiPost("/api/notifications/test", {});
+      await loadNotifications();
+    } catch (requestError) {
+      setNotificationError(requestError.message);
+      setNotificationState("error");
     }
   }
 
@@ -4786,6 +4894,17 @@ export default function Dashboard() {
           onRefresh={loadSessionSecurity}
           onRevoke={handleRevokeSession}
           onLogoutAll={handleLogoutAll}
+        />
+      )}
+
+      {status === "ready" && canReadAudit && (
+        <NotificationStatusPanel
+          summary={notificationSummary}
+          logs={notificationLogs}
+          state={notificationState}
+          error={notificationError}
+          onRefresh={loadNotifications}
+          onTest={handleTestNotification}
         />
       )}
 

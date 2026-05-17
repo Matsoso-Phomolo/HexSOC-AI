@@ -21,6 +21,7 @@ from app.services.attack_chain_persistence_service import (
     serialize_campaign,
 )
 from app.services.investigation_session_service import create_from_attack_chain, serialize_session, update_session
+from app.services.notification_service import send_notification
 from app.services.websocket_manager import serialize_activity, websocket_manager
 
 router = APIRouter()
@@ -95,6 +96,20 @@ async def rebuild_attack_chain_intelligence(
                 "persistence_errors": len(materialization["persistence_errors"]),
             },
         )
+        if critical_count > 0:
+            send_notification(
+                db,
+                event_type="critical_attack_chain_detected",
+                title="Critical attack chain detected",
+                message=f"Attack-chain rebuild found {critical_count} critical chain(s).",
+                severity="critical",
+                metadata={
+                    "critical_chains": critical_count,
+                    "high_chains": high_count,
+                    "highest_risk_score": highest_risk,
+                    "chains_persisted": materialization["chains_persisted"],
+                },
+            )
         db.commit()
         logger.info(
             "Attack-chain rebuild commit succeeded generated=%s persisted=%s steps=%s campaigns=%s errors=%s",

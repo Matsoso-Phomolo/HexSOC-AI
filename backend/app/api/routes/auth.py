@@ -25,6 +25,7 @@ from app.services.auth_service import (
     decode_access_token,
 )
 from app.services.audit_log_service import log_failure, log_success
+from app.services.notification_service import send_notification
 from app.services.session_security_service import (
     BLOCKED,
     FAILURE,
@@ -152,6 +153,14 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
             target_id=user.id if user else None,
             target_label=username,
             metadata={"reason": "too_many_failed_login_attempts"},
+        )
+        send_notification(
+            db,
+            event_type="account_locked",
+            title="HexSOC AI account temporarily locked",
+            message="Repeated failed login attempts triggered temporary lockout.",
+            severity="warning",
+            metadata={"username": username, "reason": "too_many_failed_login_attempts"},
         )
         db.commit()
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many failed login attempts. Try again later.")

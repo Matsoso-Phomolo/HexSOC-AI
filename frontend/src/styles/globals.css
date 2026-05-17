@@ -1247,7 +1247,8 @@ body {
 
 .admin-panel,
 .audit-panel,
-.session-panel {
+.session-panel,
+.notification-panel {
   border: 1px solid #203047;
   border-radius: 8px;
   background: #101c2f;
@@ -1265,20 +1266,23 @@ body {
 
 .collector-panel .section-heading,
 .audit-panel .section-heading,
-.session-panel .section-heading {
+.session-panel .section-heading,
+.notification-panel .section-heading {
   align-items: flex-start;
 }
 
 .collector-panel h2,
 .audit-panel h2,
-.session-panel h2 {
+.session-panel h2,
+.notification-panel h2 {
   margin: 0;
   font-size: 18px;
 }
 
 .collector-panel p,
 .audit-panel p,
-.session-panel p {
+.session-panel p,
+.notification-panel p {
   color: #93a4b8;
   margin: 6px 0 0;
 }
@@ -1286,6 +1290,7 @@ body {
 .collector-panel .section-heading button,
 .audit-panel .section-heading button,
 .session-panel button,
+.notification-panel button,
 .collector-key-box button {
   border: 1px solid #38bdf8;
   border-radius: 6px;
