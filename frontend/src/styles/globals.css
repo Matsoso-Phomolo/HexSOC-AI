@@ -960,6 +960,7 @@ body {
   margin-top: 10px;
 }
 
+.compact-action-row,
 .compact-action-row label {
   align-items: center;
   display: inline-flex;
@@ -1009,6 +1010,38 @@ body {
   border: 1px solid #203047;
   border-radius: 8px;
   padding: 10px;
+}
+
+.alert-family-card {
+  background: #0d1728;
+  border: 1px solid #203047;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.alert-family-members {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.alert-family-members li {
+  align-items: start;
+  border: 1px solid #17243a;
+  border-radius: 8px;
+  background: #0b1220;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 10px;
+}
+
+.alert-family-members p {
+  color: #93a4b8;
+  font-size: 13px;
+  margin: 4px 0 0;
 }
 
 .activity-section {
@@ -1776,7 +1809,7 @@ body {
   border-top: 1px solid #203047;
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   padding-top: 12px;
 }
 
@@ -1850,6 +1883,10 @@ body {
 
 .collector-error {
   color: #fecdd3 !important;
+}
+
+.collector-detail-actions {
+  margin-top: 14px;
 }
 
 .collector-detail-card {

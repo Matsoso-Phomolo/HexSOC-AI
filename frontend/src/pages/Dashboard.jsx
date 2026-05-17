@@ -325,7 +325,20 @@ const highValueActivityActions = new Set([
   "failed_login",
   "attack_chains_rebuilt",
   "workspace_evidence_checklist_created",
+  "account_locked",
+  "session_revoked",
+  "notification_failed",
 ]);
+
+function compactDuration(fromValue, toValue) {
+  if (!fromValue || !toValue) return "recent activity";
+  const seconds = Math.max(0, Math.floor((new Date(toValue).getTime() - new Date(fromValue).getTime()) / 1000));
+  if (seconds < 90) return "last minute";
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  if (minutes <= 10) return "last 10 minutes";
+  if (minutes < 60) return `last ${minutes} minutes`;
+  return "recent activity";
+}
 
 function aggregateActivityTimeline(activity) {
   const heartbeatGroups = new Map();
@@ -353,10 +366,11 @@ function aggregateActivityTimeline(activity) {
 
   heartbeatGroups.forEach((item) => {
     const nameMatch = (item.message ?? "").match(/collector\s+(.+?)\./i);
+    const windowLabel = compactDuration(item.first_at, item.latest_at);
     visible.push({
       ...item,
       action: "collector_health_summary",
-      message: `${nameMatch?.[1] ?? "Collector"} healthy - ${item.count} heartbeats in recent activity`,
+      message: `${nameMatch?.[1] ?? "Collector"} healthy - ${item.count} heartbeats in ${windowLabel}`,
       created_at: item.latest_at,
       severity: "info",
     });
@@ -369,6 +383,57 @@ function aggregateActivityTimeline(activity) {
 
 function moduleBadge(label, value, tone = "info") {
   return { label, value, tone };
+}
+
+function alertGroupKey(alert) {
+  return [
+    (alert.detection_rule || alert.title || "alert").toLowerCase().replace(/\s+/g, " ").trim(),
+    alert.mitre_technique_id || alert.mitre_technique || "no-mitre",
+    alert.severity || "info",
+    alert.source || alert.source_label || alert.hostname || "unknown-source",
+  ].join("|");
+}
+
+function alertFamilyTitle(alert, count) {
+  const base = alert.detection_rule || alert.title || alert.event_type || "Alert";
+  const cleaned = base
+    .replace(/detected in event\s+\d+/i, "alerts")
+    .replace(/event:\d+/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const title = cleaned.endsWith("alerts") ? cleaned : `${cleaned} Alerts`;
+  return `${title} (${count})`;
+}
+
+function groupAlerts(alerts) {
+  const groups = new Map();
+  alerts.forEach((alert) => {
+    const key = alertGroupKey(alert);
+    const current = groups.get(key) ?? {
+      key,
+      sample: alert,
+      alerts: [],
+      hosts: new Set(),
+      latestAt: alert.created_at || alert.updated_at || null,
+    };
+    current.alerts.push(alert);
+    const host = alert.hostname || alert.asset_hostname || alert.source_ip || alert.source || alert.source_label;
+    if (host) current.hosts.add(host);
+    const timestamp = alert.created_at || alert.updated_at;
+    if (timestamp && (!current.latestAt || new Date(timestamp) > new Date(current.latestAt))) {
+      current.latestAt = timestamp;
+      current.sample = alert;
+    }
+    groups.set(key, current);
+  });
+
+  return Array.from(groups.values())
+    .map((group) => ({
+      ...group,
+      hosts: Array.from(group.hosts),
+      severityRank: { critical: 4, high: 3, medium: 2, low: 1, info: 0 }[group.sample.severity] ?? 0,
+    }))
+    .sort((left, right) => right.alerts.length - left.alerts.length || right.severityRank - left.severityRank);
 }
 
 function StatusBadge({ status, allowedStatuses }) {
@@ -2832,18 +2897,6 @@ function CollectorManagementPanel({
                       <span>source {collector.source_label || collector.name}</span>
                     </div>
                   </button>
-                  <div className="action-row">
-                    <button type="button" disabled={!canAdmin || state === "saving"} onClick={() => onRotate(collector.id)}>
-                      Rotate Key
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!canAdmin || state === "saving" || Boolean(collector.revoked_at)}
-                      onClick={() => onRevoke(collector.id)}
-                    >
-                      Revoke
-                    </button>
-                  </div>
                 </li>
               ))}
             </ul>
@@ -2870,6 +2923,18 @@ function CollectorManagementPanel({
                     <span>Revoked <strong>{selectedCollector.revoked_at ? formatDateTime(selectedCollector.revoked_at) : "No"}</strong></span>
                   </div>
                   {selectedCollector.last_error && <p className="collector-error">Last error: {selectedCollector.last_error}</p>}
+                  <div className="action-row collector-detail-actions">
+                    <button type="button" disabled={!canAdmin || state === "saving"} onClick={() => onRotate(selectedCollector.id)}>
+                      Rotate Key
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!canAdmin || state === "saving" || Boolean(selectedCollector.revoked_at)}
+                      onClick={() => onRevoke(selectedCollector.id)}
+                    >
+                      Revoke
+                    </button>
+                  </div>
                 </>
               ) : (
                 <p className="empty-state">Select a collector to inspect fleet metadata.</p>
@@ -3154,6 +3219,17 @@ function AttackChainIntelligencePanel({
 }
 
 function AlertSection({ alerts, onStatusChange, updatingKey, canOperate }) {
+  const [expandedAlertGroups, setExpandedAlertGroups] = useState(() => new Set());
+  const alertGroups = useMemo(() => groupAlerts(alerts), [alerts]);
+  const toggleGroup = (groupKey) => {
+    setExpandedAlertGroups((current) => {
+      const next = new Set(current);
+      if (next.has(groupKey)) next.delete(groupKey);
+      else next.add(groupKey);
+      return next;
+    });
+  };
+
   return (
     <section className="data-section workflow-section">
       <div className="section-heading">
@@ -3164,40 +3240,66 @@ function AlertSection({ alerts, onStatusChange, updatingKey, canOperate }) {
       {alerts.length === 0 ? (
         <p className="empty-state">No alerts found.</p>
       ) : (
-        <ul className="data-list">
-          {alerts.slice(0, 5).map((alert) => (
-            <li key={`alert-${alert.id}`} className="workflow-item">
+        <ul className="data-list alert-family-list">
+          {alertGroups.slice(0, 8).map((group) => {
+            const alert = group.sample;
+            const isExpanded = expandedAlertGroups.has(group.key);
+            return (
+            <li key={`alert-family-${group.key}`} className="workflow-item alert-family-card">
               <div className="record-body">
                 <div className="record-title-row">
-                  <strong>{alert.title ?? "Untitled alert"}</strong>
+                  <strong>{alertFamilyTitle(alert, group.alerts.length)}</strong>
                   <StatusBadge status={alert.status} allowedStatuses={alertStatuses} />
                 </div>
-                <p>{[alert.source, alert.description].filter(Boolean).join(" | ") || "No alert context"}</p>
+                <p>
+                  {[alert.mitre_technique_id, alert.mitre_technique, alert.severity, alert.confidence_score ? `Confidence ${alert.confidence_score}` : null]
+                    .filter(Boolean)
+                    .join(" • ") || "Grouped alert family"}
+                </p>
+                <div className="activity-meta">
+                  <span>Affected hosts: {group.hosts.length || "unknown"}</span>
+                  <span>Latest: {formatRelativeAge(group.latestAt)}</span>
+                  <span>{group.alerts.length} alerts</span>
+                </div>
                 <ThreatBadges item={alert} />
                 <MitreBadges item={alert} />
-                <div className="compact-action-row">
-                  <label>
-                    <span>Actions</span>
-                    <select
-                      value=""
-                      disabled={!canOperate || updatingKey === `alert-${alert.id}`}
-                      onChange={(event) => {
-                        if (event.target.value) onStatusChange(alert.id, event.target.value);
-                      }}
-                    >
-                      <option value="">Choose action</option>
-                      {alertActions.map((action) => (
-                        <option key={`${alert.id}-${action.status}`} value={action.status} disabled={alert.status === action.status}>
-                          {action.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
+                <button type="button" className="inline-detail-button" onClick={() => toggleGroup(group.key)}>
+                  {isExpanded ? "Hide alerts" : "Expand alerts"}
+                </button>
+                {isExpanded && (
+                  <ul className="alert-family-members">
+                    {group.alerts.slice(0, 10).map((member) => (
+                      <li key={`alert-member-${member.id}`}>
+                        <div>
+                          <strong>{member.title ?? `Alert ${member.id}`}</strong>
+                          <p>{[member.source, member.description].filter(Boolean).join(" | ") || "No alert context"}</p>
+                        </div>
+                        <label className="compact-action-row">
+                          <span>Actions</span>
+                          <select
+                            value=""
+                            disabled={!canOperate || updatingKey === `alert-${member.id}`}
+                            onChange={(event) => {
+                              if (event.target.value) onStatusChange(member.id, event.target.value);
+                            }}
+                          >
+                            <option value="">Choose action</option>
+                            {alertActions.map((action) => (
+                              <option key={`${member.id}-${action.status}`} value={action.status} disabled={member.status === action.status}>
+                                {action.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
               <span className="severity">{alert.severity ?? "info"}</span>
             </li>
-          ))}
+          );
+          })}
         </ul>
       )}
     </section>
