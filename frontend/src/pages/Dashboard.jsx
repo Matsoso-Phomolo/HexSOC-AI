@@ -386,11 +386,19 @@ function moduleBadge(label, value, tone = "info") {
 }
 
 function alertGroupKey(alert) {
+  const normalizedTitle = (alert.detection_rule || alert.title || "alert")
+    .toLowerCase()
+    .replace(/detected in event\s+\d+/g, "detected")
+    .replace(/event[:#-]?\s*\d+/g, "event")
+    .replace(/\b\d{2,}\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const normalizedSource = alert.source_label || alert.hostname || alert.asset_hostname || alert.source || "unknown-source";
   return [
-    (alert.detection_rule || alert.title || "alert").toLowerCase().replace(/\s+/g, " ").trim(),
+    normalizedTitle,
     alert.mitre_technique_id || alert.mitre_technique || "no-mitre",
     alert.severity || "info",
-    alert.source || alert.source_label || alert.hostname || "unknown-source",
+    normalizedSource,
   ].join("|");
 }
 
@@ -1618,12 +1626,14 @@ function GraphInvestigationPanel({
             })}
           </svg>
 
-          <aside className="graph-detail">
+          <aside className={`graph-detail ${selectedNode ? "graph-detail-focused" : ""}`}>
             {selectedNode ? (
               <>
-                <span className="threat-badge">{selectedNode.type}</span>
-                <h3>{selectedNode.label}</h3>
-                <p>{selectedNode.id}</p>
+                <div className="graph-selected-summary">
+                  <span className="threat-badge">{selectedNode.type}</span>
+                  <h3>{selectedNode.label}</h3>
+                  <p>{selectedNode.id}</p>
+                </div>
                 <p className="graph-focus-note">Focus mode highlights directly related graph entities.</p>
                 <div className="activity-meta">
                   <span>Risk {selectedNode.risk_score}</span>
@@ -1817,6 +1827,7 @@ function CaseManagementPanel({
   onCreateWorkspaceChecklist,
   canOperate,
 }) {
+  const [workspaceTab, setWorkspaceTab] = useState("summary");
   return (
     <section className="case-panel">
       <div className="section-heading">
@@ -1966,23 +1977,66 @@ function CaseManagementPanel({
                     </div>
                   </div>
 
-                  <div className="analyst-note">
-                    <strong>Recommendation summary</strong>
-                    <p>{workspace?.recommendations?.summary || "No workspace recommendation available."}</p>
-                    <ul className="recommendation-list">
-                      {(workspace?.recommendations?.recommended_actions ?? []).slice(0, 6).map((action) => (
-                        <li key={action}>{action}</li>
-                      ))}
-                    </ul>
+                  <div className="workspace-tab-row" role="tablist" aria-label="Investigation workspace sections">
+                    {["summary", "reason", "actions", "evidence", "timeline", "report"].map((tab) => (
+                      <button
+                        key={tab}
+                        type="button"
+                        className={workspaceTab === tab ? "active-tab" : ""}
+                        onClick={() => setWorkspaceTab(tab)}
+                      >
+                        {tab}
+                      </button>
+                    ))}
                   </div>
 
-                  <div className="report-summary-grid">
-                    <div className="report-summary-card report-wide-card">
+                  {workspaceTab === "summary" && (
+                    <div className="analyst-note workspace-compact-block">
+                      <strong>Summary</strong>
+                      <p>{workspace?.recommendations?.summary || "No workspace recommendation available."}</p>
+                    </div>
+                  )}
+
+                  {workspaceTab === "reason" && (
+                    <div className="analyst-note workspace-compact-block">
+                      <strong>Escalation Reason</strong>
+                      <p>{workspace?.recommendations?.risk_assessment || caseDetails.description || "No escalation reason available."}</p>
+                    </div>
+                  )}
+
+                  {workspaceTab === "actions" && (
+                    <div className="analyst-note workspace-compact-block">
+                      <strong>Recommended Actions</strong>
+                      <ul className="recommendation-list checklist-list">
+                        {(workspace?.recommendations?.recommended_actions ?? []).slice(0, 8).map((action) => (
+                          <li key={action}>{action}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {workspaceTab === "evidence" && (
+                    <div className="report-summary-card report-wide-card workspace-compact-block">
+                      <span>Evidence Checklist</span>
+                      {(workspace?.evidence_checklist ?? []).length === 0 ? (
+                        <p>No checklist items generated.</p>
+                      ) : (
+                        <ul className="recommendation-list checklist-list">
+                          {workspace.evidence_checklist.slice(0, 10).map((item) => (
+                            <li key={item.title}>{item.title}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+
+                  {workspaceTab === "timeline" && (
+                    <div className="report-summary-card report-wide-card workspace-compact-block">
                       <span>Timeline Preview</span>
                       {(workspace?.timeline_preview ?? []).length === 0 ? (
                         <p>No linked timeline steps available.</p>
                       ) : (
-                        <ul className="case-feed">
+                        <ul className="case-feed compact-feed">
                           {workspace.timeline_preview.slice(0, 8).map((step) => (
                             <li key={step.step_id}>
                               <strong>{step.event_type || step.title}</strong>
@@ -1992,19 +2046,14 @@ function CaseManagementPanel({
                         </ul>
                       )}
                     </div>
-                    <div className="report-summary-card report-wide-card">
-                      <span>Evidence Checklist</span>
-                      {(workspace?.evidence_checklist ?? []).length === 0 ? (
-                        <p>No checklist items generated.</p>
-                      ) : (
-                        <ul className="recommendation-list">
-                          {workspace.evidence_checklist.slice(0, 8).map((item) => (
-                            <li key={item.title}>{item.title}</li>
-                          ))}
-                        </ul>
-                      )}
+                  )}
+
+                  {workspaceTab === "report" && (
+                    <div className="analyst-note workspace-compact-block">
+                      <strong>Notes / Report</strong>
+                      <p>{notes.length} notes, {evidence.length} evidence records, {workspace?.case_evidence?.length ?? 0} linked workspace evidence items.</p>
                     </div>
-                  </div>
+                  )}
 
                   <div className="action-row">
                     <button type="button" disabled={!canOperate || state === "saving"} onClick={onCreateWorkspaceChecklist}>
